@@ -309,6 +309,41 @@ The bootstrap sets `AWS_ASSUME_ROLE` from the event payload — aws-nuke handles
 - `ssm:GetParameter` — pull nuke-config.yaml from SSM
 - `logs:CreateLogGroup`, `CreateLogStream`, `PutLogEvents` — CloudWatch logging
 
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AssumeNukeRoleInTargetAccounts",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/NukeExecutionRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalOrgID": "ORG_ID"
+        }
+      }
+    },
+    {
+      "Sid": "GetNukeConfigFromSSM",
+      "Effect": "Allow",
+      "Action": "ssm:GetParameter",
+      "Resource": "arn:aws:ssm:eu-west-1:SERVICE_CATALOG_ACCOUNT_ID:parameter/aws-nuke/config"
+    },
+    {
+      "Sid": "CloudWatchLogging",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:eu-west-1:SERVICE_CATALOG_ACCOUNT_ID:log-group:/aws/lambda/aws-nuke-runner*"
+    }
+  ]
+}
+```
+
 **Role 3 — NukeExecutionRole:**
 - `AdministratorAccess` (AWS managed policy) — aws-nuke needs broad permissions to discover and delete all resource types
 

@@ -1,5 +1,9 @@
 # Step Functions State Machine — Work Plan
 
+This is an AWS account teardown orchestrator state machine implemented as an AWS Service Catalog product.
+
+---
+
 ## Step 1: Validate Target Account (OU Check)
 
 **Approach:** Direct AWS SDK integration from Step Functions (no Lambda needed)

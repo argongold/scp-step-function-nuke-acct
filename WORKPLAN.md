@@ -78,6 +78,9 @@
 - The DynamoDB writes happen via a Step Functions Map state (iterate over `enabled_regions` array) using direct SDK integration (`dynamodb:putItem`), not inside the Lambda
 - This gives us a clean record of which regions were targeted before the fan-out starts
 
+**⚠️ Review Notes (to address during implementation):**
+- **DynamoDB seeding adds a sequential Map before the fan-out Map:** Two sequential Map states (seed DynamoDB → fan-out nuke) means more execution history events. With ~20 regions this is fine, but be aware of cumulative event count across retry loops.
+
 ---
 
 ## Step 3: Map State — Fan-Out Lambda Invocations (One Per Region)
@@ -191,6 +194,11 @@ For all other regions:
 - The `States.Array()` intrinsic function wraps a single value into a one-element array (used for non-us-east-1 regions)
 - `ResultPath: null` is NOT used — we need the full results array for Step 4
 
+**⚠️ Review Notes (to address during implementation):**
+- **Lambda timeout produces no structured response:** If the nuke-runner Lambda times out (15 min), the invocation fails without returning a payload. The `ItemCatcher` handles the failure, but the hardcoded `"remaining_count": 0` in the catch result is misleading — a timed-out region likely still has resources. Consider using a sentinel value (e.g., `-1`) so Step 5 can distinguish "zero remaining" from "unknown due to error" and always retry error regions.
+- **`ItemCatcher` support:** Inline Map `ItemCatcher` was added in 2023. Confirm the CloudFormation tooling/ASL version you're using supports it. If not, fall back to a `Catch` on the entire Map state (less granular).
+- **Execution history event limit:** With ~20 regions × multiple retry loops × multiple states per iteration, monitor the 25,000 event history limit. Unlikely to hit with 5 max retries, but worth tracking.
+
 ---
 
 ## Step 4: Collect Results, Update DynamoDB State Table
@@ -299,6 +307,11 @@ Step 5 can then compare `PreviousRemainingCount` vs `RemainingCount` per region 
 - `RemovedCount` is per-run (not cumulative) — cumulative can be derived by summing across RunCount history if needed
 - `FailedResources` stores the full list of resource identifiers for debugging/reporting in SNS notifications
 - Step 4 does NOT produce a summary — Step 5 queries DynamoDB directly for aggregated state
+
+**⚠️ Review Notes (to address during implementation):**
+- **`States.Format` null safety:** `States.Format('{}', $.result.remaining_count)` will fail if `remaining_count` is `null` (e.g., from an error catch block). Ensure Lambda responses always return a numeric value, or add a fallback/default in the Pass state that normalizes error results.
+- **`FailedResources` DynamoDB typing:** The expression `":failed": { "L.$": "$.result.failed_resources" }` assumes the value is already in DynamoDB-typed list format (`[{"S": "..."}]`). If the Lambda returns a plain JSON array (`["s3-bucket-xyz"]`), Step Functions SDK integration may not auto-marshal it. Test this — may need `States.JsonToString` or a different approach.
+- **`RemovedCount` is per-run:** Since it's overwritten each cycle (not cumulative), the evaluation Lambda in Step 5 can only report the last run's removals per region, not total. Consider `ADD` expression or a separate cumulative attribute if total reporting is needed.
 
 ---
 
@@ -468,6 +481,12 @@ Step 4 output
       - max retries  → Pass (format failure msg) → Task: SNS Publish (failure) → End
       - default      → Wait (30 min) → Pass (reshape input with regions_remaining) → Step 3
 ```
+
+**⚠️ Review Notes (to address during implementation):**
+- **Evaluation order edge case:** If `max_retries_reached` is true AND `progress_detected` is true, the current order correctly hard-caps retries regardless of progress. Confirm this is intentional.
+- **`total_removed` accuracy:** The evaluation Lambda sums `RemovedCount` across regions, but `RemovedCount` is per-run (overwritten each cycle). Either make it cumulative in DynamoDB (`ADD RemovedCount :removed` instead of `SET`) or track a separate `TotalRemovedCount` attribute.
+- **EventBridge rule event pattern:** The infra table lists EventBridge but doesn't specify the event source/pattern (e.g., manual trigger, scheduled, or event-driven from another service). Define this during implementation.
+- **CloudWatch alarms:** No alarm defined for consecutive failed executions beyond SNS notifications. Consider adding an alarm on the state machine's `ExecutionsFailed` metric.
 
 ---
 

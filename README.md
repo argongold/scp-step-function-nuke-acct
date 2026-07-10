@@ -1,6 +1,6 @@
-# AWS Nuke Resource Deletion — Step Functions Orchestrator
+# AWS Account Teardown Orchestrator - Step Function State Machine
 
-Automated AWS account resource cleanup using aws-nuke v3, orchestrated by Step Functions with per-region fan-out Lambda invocations.
+This is an AWS account teardown orchestrator state machine implemented as an AWS Service Catalog product.
 
 ## Documentation
 

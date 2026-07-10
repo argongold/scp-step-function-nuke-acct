@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Account Teardown Orchestrator - Step Functions State Machine (Service Catalog Product)
+
+Resources:
+
+  #############################################
+  # Step Functions State Machine
+  #############################################
+  AccountTeardownStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: account-teardown-orchestrator
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Account Teardown Orchestrator - Nuke account resources via per-region fan-out",
+          "StartAt": "ValidateOU",
+          "States": {
+            "ValidateOU": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:organizations:listParents",
+              "Parameters": {
+                "ChildId.$": "$.target_account_id"
+              },
+              "ResultPath": "$.ou_result",
+              "Next": "CheckOU"
+            },
+            "CheckOU": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.ou_result.Parents[0].Id",
+                  "StringEquals": "ou-xxxx-xxxxxxxx",
+                  "Next": "Step2Placeholder"
+                }
+              ],
+              "Default": "FailNotInOU"
+            },
+            "FailNotInOU": {
+              "Type": "Fail",
+              "Cause": "Account is not in the Quarantine OU",
+              "Error": "OUValidationFailed"
+            },
+            "Step2Placeholder": {
+              "Type": "Pass",
+              "Comment": "Placeholder for Step 2 - Discover Enabled Regions",
+              "End": true
+            }
+          }
+        }
+
+  #############################################
+  # IAM Role - Step Functions Execution
+  #############################################
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: account-teardown-sfn-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsOUValidation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - organizations:ListParents
+                Resource: '*'

@@ -4,7 +4,7 @@ This is an AWS account teardown orchestrator state machine implemented as an AWS
 
 ---
 
-## Step 1: Validate Target Account (OU Check)
+## Step 1: Validate Target Account (OU Check) ✅
 
 **Approach:** Direct AWS SDK integration from Step Functions (no Lambda needed)
 

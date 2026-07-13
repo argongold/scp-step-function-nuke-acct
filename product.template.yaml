@@ -50,6 +50,68 @@ Resources:
         }
 
   #############################################
+  # DynamoDB State Table
+  #############################################
+  StateTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: slz-account-teardown-state-table
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: AccountId
+          AttributeType: S
+        - AttributeName: Region
+          AttributeType: S
+      KeySchema:
+        - AttributeName: AccountId
+          KeyType: HASH
+        - AttributeName: Region
+          KeyType: RANGE
+
+  #############################################
+  # IAM Role - Region Discovery Lambda
+  #############################################
+  RegionDiscoveryLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: slz-account-teardown-region-discovery-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: "SOURCE-ACCOUNT"
+      Policies:
+        - PolicyName: AssumeTargetAccountRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: "arn:aws:iam::*:role/NukeExecutionRole"
+                Condition:
+                  StringEquals:
+                    aws:PrincipalOrgID: "PRINCIPAL-ORG-ID"
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+      Tags:
+        - Key: SCP-ALLOW-PLATFORM
+          Value: "true"
+
+  #############################################
   # IAM Role - Step Functions Execution
   #############################################
   StepFunctionsExecutionRole:

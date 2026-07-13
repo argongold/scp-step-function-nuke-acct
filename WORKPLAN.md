@@ -517,10 +517,10 @@ All remaining infrastructure lives in eu-west-1 in the service catalog account, 
 | 4 | DynamoDB state table | `AWS::DynamoDB::Table` | ✅ Done — PK: `AccountId`, SK: `Region`, on-demand billing |
 | 5 | SNS topic | `AWS::SNS::Topic` | ✅ Done — Single topic, message attribute routing for success/failure |
 | 6 | Step Functions state machine | `AWS::StepFunctions::StateMachine` | ✅ Done — Steps 1–5 fully implemented |
-| 7 | EventBridge rule | `AWS::Events::Rule` | Triggers state machine, passes `target_account_id` as execution name |
+| 7 | ~~EventBridge rule~~ | ~~`AWS::Events::Rule`~~ | Removed — not needed |
 | 8 | NukeLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `sts:AssumeRole`, SSM, CloudWatch Logs |
 | 9 | EvaluationLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `dynamodb:Query`, CloudWatch Logs |
 | 10 | RegionDiscoveryLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `sts:AssumeRole`, CloudWatch Logs |
 | 11 | StepFunctionsExecutionRole | `AWS::IAM::Role` | ✅ Done — Organizations, Lambda invoke (all), DynamoDB, SNS |
-| 12 | EventBridge IAM role | `AWS::IAM::Role` | `states:StartExecution` on the state machine |
+| 12 | ~~EventBridge IAM role~~ | ~~`AWS::IAM::Role`~~ | Removed — not needed |
 | 13 | SSM Parameter (nuke config) | `AWS::SSM::Parameter` | Base `nuke-config.yaml` with `PLACEHOLDER_ACCOUNT` token |

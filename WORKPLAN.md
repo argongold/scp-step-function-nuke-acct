@@ -523,4 +523,4 @@ All remaining infrastructure lives in eu-west-1 in the service catalog account, 
 | 10 | RegionDiscoveryLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `sts:AssumeRole`, CloudWatch Logs |
 | 11 | StepFunctionsExecutionRole | `AWS::IAM::Role` | ✅ Done — Organizations, Lambda invoke (all), DynamoDB, SNS |
 | 12 | ~~EventBridge IAM role~~ | ~~`AWS::IAM::Role`~~ | Removed — not needed |
-| 13 | SSM Parameter (nuke config) | `AWS::SSM::Parameter` | Base `nuke-config.yaml` with `PLACEHOLDER_ACCOUNT` token |
+| 13 | SSM Parameter (nuke config) | `AWS::SSM::Parameter` | ✅ Done — Placeholder value, path `/slz-aws-nuke/nuke-config-base` |

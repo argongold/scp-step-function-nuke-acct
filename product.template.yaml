@@ -187,11 +187,105 @@ Resources:
                 }
               },
               "ResultPath": "$.nuke_results",
-              "Next": "Step4Placeholder"
+              "Next": "UpdateDynamoDB"
             },
-            "Step4Placeholder": {
+            "UpdateDynamoDB": {
+              "Type": "Map",
+              "ItemsPath": "$.nuke_results",
+              "MaxConcurrency": 1,
+              "ItemSelector": {
+                "result.$": "$$.Map.Item.Value",
+                "account_id.$": "$.target_account_id",
+                "execution_id.$": "$$.Execution.Id"
+              },
+              "Iterator": {
+                "StartAt": "NormalizeStatus",
+                "States": {
+                  "NormalizeStatus": {
+                    "Type": "Choice",
+                    "Choices": [
+                      {
+                        "Variable": "$.result.status",
+                        "StringEquals": "complete",
+                        "Next": "SetStatusComplete"
+                      },
+                      {
+                        "Variable": "$.result.status",
+                        "StringEquals": "resources_remaining",
+                        "Next": "SetStatusRemaining"
+                      }
+                    ],
+                    "Default": "SetStatusRemaining"
+                  },
+                  "SetStatusComplete": {
+                    "Type": "Pass",
+                    "Parameters": {
+                      "result.$": "$.result",
+                      "account_id.$": "$.account_id",
+                      "execution_id.$": "$.execution_id",
+                      "normalized_status": "complete"
+                    },
+                    "Next": "UpdateRegionItem"
+                  },
+                  "SetStatusRemaining": {
+                    "Type": "Pass",
+                    "Parameters": {
+                      "result.$": "$.result",
+                      "account_id.$": "$.account_id",
+                      "execution_id.$": "$.execution_id",
+                      "normalized_status": "resources_remaining"
+                    },
+                    "Next": "UpdateRegionItem"
+                  },
+                  "UpdateRegionItem": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::aws-sdk:dynamodb:updateItem",
+                    "Parameters": {
+                      "TableName": "${StateTable}",
+                      "Key": {
+                        "AccountId": { "S.$": "$.account_id" },
+                        "Region": { "S.$": "$.result.region" }
+                      },
+                      "UpdateExpression": "SET #status = :status, PreviousRemainingCount = RemainingCount, RemainingCount = :remaining, RemovedCount = :removed, FailedResources = :failed, RunCount = RunCount + :one, LastUpdated = :ts, #error = :err",
+                      "ConditionExpression": "ExecutionId = :exec_id",
+                      "ExpressionAttributeNames": {
+                        "#status": "Status",
+                        "#error": "Error"
+                      },
+                      "ExpressionAttributeValues": {
+                        ":status": { "S.$": "$.normalized_status" },
+                        ":remaining": { "N.$": "States.Format('{}', $.result.remaining_count)" },
+                        ":removed": { "N.$": "States.Format('{}', $.result.removed_count)" },
+                        ":failed": { "S.$": "States.JsonToString($.result.failed_resources)" },
+                        ":one": { "N": "1" },
+                        ":ts": { "S.$": "$$.State.EnteredTime" },
+                        ":err": { "S.$": "States.Format('{}', $.result.error)" },
+                        ":exec_id": { "S.$": "$.execution_id" }
+                      }
+                    },
+                    "ResultPath": null,
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["DynamoDb.ConditionalCheckFailedException"],
+                        "ResultPath": null,
+                        "Next": "StaleExecutionNoOp"
+                      }
+                    ],
+                    "End": true
+                  },
+                  "StaleExecutionNoOp": {
+                    "Type": "Pass",
+                    "Comment": "Stale execution tried to update - ignoring",
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": null,
+              "Next": "Step5Placeholder"
+            },
+            "Step5Placeholder": {
               "Type": "Pass",
-              "Comment": "Placeholder for Step 4 - Collect Results, Update DynamoDB",
+              "Comment": "Placeholder for Step 5 - Evaluate and Decide",
               "End": true
             }
           }
@@ -377,11 +471,12 @@ Resources:
                 Action:
                   - lambda:InvokeFunction
                 Resource: !GetAtt NukeRunnerFunction.Arn
-        - PolicyName: DynamoDBSeedState
+        - PolicyName: DynamoDBStateTable
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
                   - dynamodb:PutItem
+                  - dynamodb:UpdateItem
                 Resource: !GetAtt StateTable.Arn

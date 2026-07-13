@@ -671,3 +671,14 @@ Resources:
                 Action:
                   - sns:Publish
                 Resource: !Ref NotificationTopic
+
+  #############################################
+  # SSM Parameter - Nuke Config Base
+  #############################################
+  NukeConfigBaseParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /slz-aws-nuke/nuke-config-base
+      Type: String
+      Value: "# Placeholder - populate with nuke-config-base.yaml content"
+      Description: Base aws-nuke configuration with PLACEHOLDER_ACCOUNT token

@@ -500,7 +500,7 @@ Step 4 output
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Nuke-runner container image (CodeBuild) | ✅ Done | Custom Lambda container built via CodeBuild pipeline |
+| Nuke-runner container image (CodeBuild) | ✅ Done | Container image built via CodeBuild pipeline, pushed to ECR |
 | NukeExecutionRole (Target Account) | ✅ Done | Deployed via separate CFN template in target accounts |
 
 ---
@@ -511,7 +511,7 @@ All remaining infrastructure lives in eu-west-1 in the service catalog account, 
 
 | # | Component | Type | Notes |
 |---|-----------|------|-------|
-| 1 | Nuke-runner Lambda | `AWS::Lambda::Function` | Container image from ECR, 15 min timeout, reserved concurrency ~25 |
+| 1 | Nuke-runner Lambda | `AWS::Serverless::Function` | Container image from ECR (ImageUri), 15 min timeout, reserved concurrency 100 |
 | 2 | Evaluation Lambda | `AWS::Lambda::Function` | Small Python/Node, queries DynamoDB, returns decision object |
 | 3 | Region-discovery Lambda | `AWS::Serverless::Function` | ✅ Done — Python, assumes target role, calls `account:ListRegions` |
 | 4 | DynamoDB state table | `AWS::DynamoDB::Table` | ✅ Done — PK: `AccountId`, SK: `Region`, on-demand billing |

@@ -2,6 +2,12 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: AWS Account Teardown Orchestrator - Step Functions State Machine (Service Catalog Product)
 
+Parameters:
+  NukeContainerImageUri:
+    Type: String
+    Default: "SOURCE-ACCOUNT.dkr.ecr.eu-west-1.amazonaws.com/slz-account-teardown-nuke-runner:latest"
+    Description: ECR image URI for the nuke-runner Lambda container
+
 Resources:
 
   #############################################
@@ -92,11 +98,100 @@ Resources:
                 }
               },
               "ResultPath": null,
-              "Next": "Step3Placeholder"
+              "Next": "FanOutNukeRunner"
             },
-            "Step3Placeholder": {
+            "FanOutNukeRunner": {
+              "Type": "Map",
+              "ItemsPath": "$.region_discovery.enabled_regions",
+              "MaxConcurrency": 0,
+              "ItemSelector": {
+                "region.$": "$$.Map.Item.Value",
+                "target_account_id.$": "$.target_account_id",
+                "target_role_arn.$": "$.target_role_arn",
+                "no_dry_run.$": "$.no_dry_run"
+              },
+              "ItemCatcher": {
+                "Catch": [
+                  {
+                    "ErrorEquals": ["States.ALL"],
+                    "ResultPath": "$.error_info",
+                    "Next": "FormatItemError"
+                  }
+                ]
+              },
+              "Iterator": {
+                "StartAt": "CheckUsEast1",
+                "States": {
+                  "CheckUsEast1": {
+                    "Type": "Choice",
+                    "Choices": [
+                      {
+                        "Variable": "$.region",
+                        "StringEquals": "us-east-1",
+                        "Next": "BuildPayloadUsEast1"
+                      }
+                    ],
+                    "Default": "BuildPayloadOtherRegion"
+                  },
+                  "BuildPayloadUsEast1": {
+                    "Type": "Pass",
+                    "Parameters": {
+                      "target_account_id.$": "$.target_account_id",
+                      "target_role_arn.$": "$.target_role_arn",
+                      "region": "us-east-1",
+                      "regions": ["global", "us-east-1"],
+                      "no_dry_run.$": "$.no_dry_run"
+                    },
+                    "Next": "InvokeNukeRunner"
+                  },
+                  "BuildPayloadOtherRegion": {
+                    "Type": "Pass",
+                    "Parameters": {
+                      "target_account_id.$": "$.target_account_id",
+                      "target_role_arn.$": "$.target_role_arn",
+                      "region.$": "$.region",
+                      "regions.$": "States.Array($.region)",
+                      "no_dry_run.$": "$.no_dry_run"
+                    },
+                    "Next": "InvokeNukeRunner"
+                  },
+                  "InvokeNukeRunner": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${NukeRunnerFunction}",
+                      "Payload.$": "$"
+                    },
+                    "ResultSelector": {
+                      "status.$": "$.Payload.status",
+                      "region.$": "$.Payload.region",
+                      "remaining_count.$": "$.Payload.remaining_count",
+                      "removed_count.$": "$.Payload.removed_count",
+                      "failed_resources.$": "$.Payload.failed_resources",
+                      "error.$": "$.Payload.error"
+                    },
+                    "End": true
+                  },
+                  "FormatItemError": {
+                    "Type": "Pass",
+                    "Parameters": {
+                      "status": "error",
+                      "region.$": "$.region",
+                      "remaining_count": -1,
+                      "removed_count": 0,
+                      "failed_resources": [],
+                      "error.$": "$.error_info.Cause"
+                    },
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": "$.nuke_results",
+              "Next": "Step4Placeholder"
+            },
+            "Step4Placeholder": {
               "Type": "Pass",
-              "Comment": "Placeholder for Step 3 - Fan-Out Lambda Invocations",
+              "Comment": "Placeholder for Step 4 - Collect Results, Update DynamoDB",
               "End": true
             }
           }
@@ -120,6 +215,71 @@ Resources:
           KeyType: HASH
         - AttributeName: Region
           KeyType: RANGE
+
+  #############################################
+  # IAM Role - Nuke Runner Lambda
+  #############################################
+  NukeRunnerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: slz-account-teardown-nuke-runner-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: "SOURCE-ACCOUNT"
+      Policies:
+        - PolicyName: AssumeTargetAccountRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: "arn:aws:iam::*:role/NukeExecutionRole"
+                Condition:
+                  StringEquals:
+                    aws:PrincipalOrgID: "PRINCIPAL-ORG-ID"
+        - PolicyName: SSMGetNukeConfig
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter/slz-aws-nuke/nuke-config-base"
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+      Tags:
+        - Key: SCP-ALLOW-PLATFORM
+          Value: "true"
+
+  #############################################
+  # Lambda - Nuke Runner
+  #############################################
+  NukeRunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: slz-account-teardown-nuke-runner
+      PackageType: Image
+      ImageUri: !Ref NukeContainerImageUri
+      Timeout: 900
+      MemorySize: 1024
+      ReservedConcurrentExecutions: 100
+      Role: !GetAtt NukeRunnerLambdaRole.Arn
 
   #############################################
   # IAM Role - Region Discovery Lambda
@@ -209,6 +369,14 @@ Resources:
                 Action:
                   - lambda:InvokeFunction
                 Resource: !GetAtt RegionDiscoveryFunction.Arn
+        - PolicyName: InvokeNukeRunnerLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt NukeRunnerFunction.Arn
         - PolicyName: DynamoDBSeedState
           PolicyDocument:
             Version: '2012-10-17'

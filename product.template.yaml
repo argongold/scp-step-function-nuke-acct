@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
 Description: AWS Account Teardown Orchestrator - Step Functions State Machine (Service Catalog Product)
 
 Resources:
@@ -110,6 +111,20 @@ Resources:
       Tags:
         - Key: SCP-ALLOW-PLATFORM
           Value: "true"
+
+  #############################################
+  # Lambda - Region Discovery
+  #############################################
+  RegionDiscoveryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: slz-account-teardown-region-discovery
+      Runtime: python3.12
+      Handler: region-discovery.handler
+      CodeUri: src/region-discovery/
+      Timeout: 300
+      MemorySize: 128
+      Role: !GetAtt RegionDiscoveryLambdaRole.Arn
 
   #############################################
   # IAM Role - Step Functions Execution

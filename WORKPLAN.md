@@ -87,7 +87,7 @@ This is an AWS account teardown orchestrator state machine implemented as an AWS
 
 ---
 
-## Step 3: Map State — Fan-Out Lambda Invocations (One Per Region)
+## Step 3: Map State — Fan-Out Lambda Invocations (One Per Region) ✅
 
 **Approach:** Distributed Map state iterating over `enabled_regions`, invoking the nuke-runner Lambda concurrently for each region. Choice state inside the iterator handles the us-east-1 global resources special case.
 
@@ -511,16 +511,16 @@ All remaining infrastructure lives in eu-west-1 in the service catalog account, 
 
 | # | Component | Type | Notes |
 |---|-----------|------|-------|
-| 1 | Nuke-runner Lambda | `AWS::Serverless::Function` | Container image from ECR (ImageUri), 15 min timeout, reserved concurrency 100 |
+| 1 | Nuke-runner Lambda | `AWS::Serverless::Function` | ✅ Done — Container image from ECR (ImageUri), 15 min timeout, reserved concurrency 100 |
 | 2 | Evaluation Lambda | `AWS::Lambda::Function` | Small Python/Node, queries DynamoDB, returns decision object |
 | 3 | Region-discovery Lambda | `AWS::Serverless::Function` | ✅ Done — Python, assumes target role, calls `account:ListRegions` |
 | 4 | DynamoDB state table | `AWS::DynamoDB::Table` | ✅ Done — PK: `AccountId`, SK: `Region`, on-demand billing |
 | 5 | SNS topic | `AWS::SNS::Topic` | Single topic, message attribute routing for success/failure |
-| 6 | Step Functions state machine | `AWS::StepFunctions::StateMachine` | ✅ Partial — Steps 1–2 implemented, Steps 3–5 pending |
+| 6 | Step Functions state machine | `AWS::StepFunctions::StateMachine` | ✅ Partial — Steps 1–3 implemented, Steps 4–5 pending |
 | 7 | EventBridge rule | `AWS::Events::Rule` | Triggers state machine, passes `target_account_id` as execution name |
-| 8 | NukeLambdaExecutionRole | `AWS::IAM::Role` | Lambda exec role: `sts:AssumeRole`, SSM, CloudWatch Logs |
+| 8 | NukeLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `sts:AssumeRole`, SSM, CloudWatch Logs |
 | 9 | EvaluationLambdaExecutionRole | `AWS::IAM::Role` | Lambda exec role: `dynamodb:Query`, CloudWatch Logs |
 | 10 | RegionDiscoveryLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `sts:AssumeRole`, CloudWatch Logs |
-| 11 | StepFunctionsExecutionRole | `AWS::IAM::Role` | ✅ Partial — Organizations, Lambda invoke, DynamoDB PutItem |
+| 11 | StepFunctionsExecutionRole | `AWS::IAM::Role` | ✅ Partial — Organizations, Lambda invoke (both), DynamoDB PutItem |
 | 12 | EventBridge IAM role | `AWS::IAM::Role` | `states:StartExecution` on the state machine |
 | 13 | SSM Parameter (nuke config) | `AWS::SSM::Parameter` | Base `nuke-config.yaml` with `PLACEHOLDER_ACCOUNT` token |

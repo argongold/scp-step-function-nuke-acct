@@ -281,12 +281,122 @@ Resources:
                 }
               },
               "ResultPath": null,
-              "Next": "Step5Placeholder"
+              "Next": "Evaluate"
             },
-            "Step5Placeholder": {
+            "Evaluate": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${EvaluationFunction}",
+                "Payload": {
+                  "target_account_id.$": "$.target_account_id",
+                  "execution_id.$": "$$.Execution.Id"
+                }
+              },
+              "ResultSelector": {
+                "all_complete.$": "$.Payload.all_complete",
+                "progress_detected.$": "$.Payload.progress_detected",
+                "run_count.$": "$.Payload.run_count",
+                "max_retries_reached.$": "$.Payload.max_retries_reached",
+                "regions_remaining.$": "$.Payload.regions_remaining",
+                "regions_complete.$": "$.Payload.regions_complete",
+                "total_removed.$": "$.Payload.total_removed",
+                "stuck_regions.$": "$.Payload.stuck_regions",
+                "summary.$": "$.Payload.summary"
+              },
+              "ResultPath": "$.evaluation",
+              "Next": "DecideNextAction"
+            },
+            "DecideNextAction": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.evaluation.all_complete",
+                  "BooleanEquals": true,
+                  "Next": "FormatSuccessMessage"
+                },
+                {
+                  "Variable": "$.evaluation.progress_detected",
+                  "BooleanEquals": false,
+                  "Next": "FormatFailureMessage"
+                },
+                {
+                  "Variable": "$.evaluation.max_retries_reached",
+                  "BooleanEquals": true,
+                  "Next": "FormatFailureMessage"
+                }
+              ],
+              "Default": "WaitBeforeRetry"
+            },
+            "FormatSuccessMessage": {
               "Type": "Pass",
-              "Comment": "Placeholder for Step 5 - Evaluate and Decide",
+              "Parameters": {
+                "TopicArn": "${NotificationTopic}",
+                "Subject.$": "States.Format('AWS Nuke Complete: Account {}', $.target_account_id)",
+                "Message.$": "States.Format('Account {} teardown completed successfully.\nRegions processed: {}\nTotal resources removed: {}\nExecution: {}', $.target_account_id, States.JsonToString($.evaluation.regions_complete), $.evaluation.total_removed, $$.Execution.Id)",
+                "MessageAttributes": {
+                  "outcome": {
+                    "DataType": "String",
+                    "StringValue": "success"
+                  }
+                }
+              },
+              "Next": "NotifySuccess"
+            },
+            "NotifySuccess": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:sns:publish",
+              "Parameters": {
+                "TopicArn.$": "$.TopicArn",
+                "Subject.$": "$.Subject",
+                "Message.$": "$.Message",
+                "MessageAttributes.$": "$.MessageAttributes"
+              },
               "End": true
+            },
+            "FormatFailureMessage": {
+              "Type": "Pass",
+              "Parameters": {
+                "TopicArn": "${NotificationTopic}",
+                "Subject.$": "States.Format('AWS Nuke FAILED: Account {}', $.target_account_id)",
+                "Message.$": "States.Format('Account {} teardown FAILED.\nRun count: {}\nMax retries reached: {}\nProgress detected: {}\nStuck regions: {}\nRegions remaining: {}\nSummary: {}\nExecution: {}', $.target_account_id, $.evaluation.run_count, $.evaluation.max_retries_reached, $.evaluation.progress_detected, States.JsonToString($.evaluation.stuck_regions), States.JsonToString($.evaluation.regions_remaining), States.JsonToString($.evaluation.summary), $$.Execution.Id)",
+                "MessageAttributes": {
+                  "outcome": {
+                    "DataType": "String",
+                    "StringValue": "failure"
+                  }
+                }
+              },
+              "Next": "NotifyFailure"
+            },
+            "NotifyFailure": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:sns:publish",
+              "Parameters": {
+                "TopicArn.$": "$.TopicArn",
+                "Subject.$": "$.Subject",
+                "Message.$": "$.Message",
+                "MessageAttributes.$": "$.MessageAttributes"
+              },
+              "End": true
+            },
+            "WaitBeforeRetry": {
+              "Type": "Wait",
+              "Seconds": 1800,
+              "Next": "ReshapeForRetry"
+            },
+            "ReshapeForRetry": {
+              "Type": "Pass",
+              "Parameters": {
+                "target_account_id.$": "$.target_account_id",
+                "target_role_arn.$": "$.target_role_arn",
+                "no_dry_run.$": "$.no_dry_run",
+                "region_discovery": {
+                  "target_account_id.$": "$.target_account_id",
+                  "enabled_regions.$": "$.evaluation.regions_remaining"
+                }
+              },
+              "Next": "FanOutNukeRunner"
             }
           }
         }
@@ -433,6 +543,71 @@ Resources:
       Role: !GetAtt RegionDiscoveryLambdaRole.Arn
 
   #############################################
+  # SNS Topic - Notifications
+  #############################################
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: slz-account-teardown-notifications
+
+  #############################################
+  # IAM Role - Evaluation Lambda
+  #############################################
+  EvaluationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: slz-account-teardown-evaluation-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: "SOURCE-ACCOUNT"
+      Policies:
+        - PolicyName: DynamoDBQuery
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource: !GetAtt StateTable.Arn
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+      Tags:
+        - Key: SCP-ALLOW-PLATFORM
+          Value: "true"
+
+  #############################################
+  # Lambda - Evaluation
+  #############################################
+  EvaluationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: slz-account-teardown-evaluation
+      Runtime: python3.12
+      Handler: evaluation.handler
+      CodeUri: src/evaluation/
+      Timeout: 180
+      MemorySize: 128
+      Role: !GetAtt EvaluationLambdaRole.Arn
+      Environment:
+        Variables:
+          STATE_TABLE_NAME: !Ref StateTable
+
+  #############################################
   # IAM Role - Step Functions Execution
   #############################################
   StepFunctionsExecutionRole:
@@ -480,3 +655,19 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                 Resource: !GetAtt StateTable.Arn
+        - PolicyName: InvokeEvaluationLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt EvaluationFunction.Arn
+        - PolicyName: SNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref NotificationTopic

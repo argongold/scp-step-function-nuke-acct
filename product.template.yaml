@@ -32,7 +32,7 @@ Resources:
                 {
                   "Variable": "$.ou_result.Parents[0].Id",
                   "StringEquals": "ou-xxxx-xxxxxxxx",
-                  "Next": "Step2Placeholder"
+                  "Next": "DiscoverRegions"
                 }
               ],
               "Default": "FailNotInOU"
@@ -42,9 +42,61 @@ Resources:
               "Cause": "Account is not in the Quarantine OU",
               "Error": "OUValidationFailed"
             },
-            "Step2Placeholder": {
+            "DiscoverRegions": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${RegionDiscoveryFunction}",
+                "Payload": {
+                  "target_account_id.$": "$.target_account_id",
+                  "target_role_arn.$": "$.target_role_arn"
+                }
+              },
+              "ResultSelector": {
+                "target_account_id.$": "$.Payload.target_account_id",
+                "enabled_regions.$": "$.Payload.enabled_regions"
+              },
+              "ResultPath": "$.region_discovery",
+              "Next": "SeedDynamoDB"
+            },
+            "SeedDynamoDB": {
+              "Type": "Map",
+              "ItemsPath": "$.region_discovery.enabled_regions",
+              "MaxConcurrency": 1,
+              "ItemSelector": {
+                "account_id.$": "$.region_discovery.target_account_id",
+                "region.$": "$$.Map.Item.Value",
+                "execution_id.$": "$$.Execution.Id"
+              },
+              "Iterator": {
+                "StartAt": "PutRegionItem",
+                "States": {
+                  "PutRegionItem": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::aws-sdk:dynamodb:putItem",
+                    "Parameters": {
+                      "TableName": "${StateTable}",
+                      "Item": {
+                        "AccountId": { "S.$": "$.account_id" },
+                        "Region": { "S.$": "$.region" },
+                        "ExecutionId": { "S.$": "$.execution_id" },
+                        "RunCount": { "N": "0" },
+                        "Status": { "S": "pending" },
+                        "RemainingCount": { "N": "0" },
+                        "LastUpdated": { "S.$": "$$.State.EnteredTime" }
+                      }
+                    },
+                    "ResultPath": null,
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": null,
+              "Next": "Step3Placeholder"
+            },
+            "Step3Placeholder": {
               "Type": "Pass",
-              "Comment": "Placeholder for Step 2 - Discover Enabled Regions",
+              "Comment": "Placeholder for Step 3 - Fan-Out Lambda Invocations",
               "End": true
             }
           }
@@ -149,3 +201,19 @@ Resources:
                 Action:
                   - organizations:ListParents
                 Resource: '*'
+        - PolicyName: InvokeRegionDiscoveryLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt RegionDiscoveryFunction.Arn
+        - PolicyName: DynamoDBSeedState
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt StateTable.Arn

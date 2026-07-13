@@ -9,7 +9,7 @@ Resources:
   AccountTeardownStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
-      StateMachineName: account-teardown-orchestrator
+      StateMachineName: slz-account-teardown-orchestrator
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
       DefinitionString: !Sub |
         {
@@ -55,7 +55,7 @@ Resources:
   StepFunctionsExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: account-teardown-sfn-execution-role
+      RoleName: slz-account-teardown-orchestrator-role
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

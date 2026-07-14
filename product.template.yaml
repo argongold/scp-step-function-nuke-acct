@@ -119,15 +119,6 @@ Resources:
                 "target_role_arn.$": "$.target_role_arn",
                 "no_dry_run.$": "$.no_dry_run"
               },
-              "ItemCatcher": {
-                "Catch": [
-                  {
-                    "ErrorEquals": ["States.ALL"],
-                    "ResultPath": "$.error_info",
-                    "Next": "FormatItemError"
-                  }
-                ]
-              },
               "Iterator": {
                 "StartAt": "CheckUsEast1",
                 "States": {
@@ -179,6 +170,13 @@ Resources:
                       "failed_resources.$": "$.Payload.failed_resources",
                       "error.$": "$.Payload.error"
                     },
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.error_info",
+                        "Next": "FormatItemError"
+                      }
+                    ],
                     "End": true
                   },
                   "FormatItemError": {

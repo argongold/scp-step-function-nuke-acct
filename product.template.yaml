@@ -3,10 +3,19 @@ Transform: AWS::Serverless-2016-10-31
 Description: AWS Account Teardown Orchestrator - Step Functions State Machine (Service Catalog Product)
 
 Parameters:
-  NukeContainerImageUri:
+  ServiceCatalogAccountId:
     Type: String
-    Default: "SOURCE-ACCOUNT.dkr.ecr.eu-west-1.amazonaws.com/slz-account-teardown-nuke-runner:latest"
-    Description: ECR image URI for the nuke-runner Lambda container
+    Description: AWS Account ID where this Service Catalog product is deployed (hosts ECR, Lambdas, and Step Functions)
+
+  QuarantineOuId:
+    Type: String
+    Default: "ou-xyz6-xxxxxxxx"
+    Description: ID of the Quarantine OU in the Customer Sandbox solution.
+
+  PrincipalOrgId:
+    Type: String
+    Description: AWS Organizations ID (e.g., o-xxxxxxxxxx) used to restrict cross-account role assumption to the organization.
+
 
 Resources:
 
@@ -37,7 +46,7 @@ Resources:
               "Choices": [
                 {
                   "Variable": "$.ou_result.Parents[0].Id",
-                  "StringEquals": "ou-xxxx-xxxxxxxx",
+                  "StringEquals": "${QuarantineOuId}",
                   "Next": "DiscoverRegions"
                 }
               ],
@@ -436,7 +445,7 @@ Resources:
             Action: sts:AssumeRole
             Condition:
               StringEquals:
-                aws:SourceAccount: "SOURCE-ACCOUNT"
+                aws:SourceAccount: !Ref ServiceCatalogAccountId
       Policies:
         - PolicyName: AssumeTargetAccountRole
           PolicyDocument:
@@ -448,7 +457,7 @@ Resources:
                 Resource: "arn:aws:iam::*:role/NukeExecutionRole"
                 Condition:
                   StringEquals:
-                    aws:PrincipalOrgID: "PRINCIPAL-ORG-ID"
+                    aws:PrincipalOrgID: !Ref PrincipalOrgId
         - PolicyName: SSMGetNukeConfig
           PolicyDocument:
             Version: '2012-10-17'
@@ -479,7 +488,7 @@ Resources:
     Properties:
       FunctionName: slz-account-teardown-nuke-runner
       PackageType: Image
-      ImageUri: !Ref NukeContainerImageUri
+      ImageUri: !Sub "${ServiceCatalogAccountId}.dkr.ecr.eu-west-1.amazonaws.com/slz-account-teardown-nuke-runner:latest"
       Timeout: 900
       MemorySize: 1024
       ReservedConcurrentExecutions: 100
@@ -501,7 +510,7 @@ Resources:
             Action: sts:AssumeRole
             Condition:
               StringEquals:
-                aws:SourceAccount: "SOURCE-ACCOUNT"
+                aws:SourceAccount: !Ref ServiceCatalogAccountId
       Policies:
         - PolicyName: AssumeTargetAccountRole
           PolicyDocument:
@@ -513,7 +522,7 @@ Resources:
                 Resource: "arn:aws:iam::*:role/NukeExecutionRole"
                 Condition:
                   StringEquals:
-                    aws:PrincipalOrgID: "PRINCIPAL-ORG-ID"
+                    aws:PrincipalOrgID: !Ref PrincipalOrgId
         - PolicyName: CloudWatchLogs
           PolicyDocument:
             Version: '2012-10-17'
@@ -566,7 +575,7 @@ Resources:
             Action: sts:AssumeRole
             Condition:
               StringEquals:
-                aws:SourceAccount: "SOURCE-ACCOUNT"
+                aws:SourceAccount: !Ref ServiceCatalogAccountId
       Policies:
         - PolicyName: DynamoDBQuery
           PolicyDocument:

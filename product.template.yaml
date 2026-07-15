@@ -47,7 +47,7 @@ Resources:
                 {
                   "Variable": "$.ou_result.Parents[0].Id",
                   "StringEquals": "${QuarantineOuId}",
-                  "Next": "DiscoverRegions"
+                  "Next": "CheckDuplicateExecution"
                 }
               ],
               "Default": "FailNotInOU"
@@ -56,6 +56,42 @@ Resources:
               "Type": "Fail",
               "Cause": "Account is not in the Quarantine OU",
               "Error": "OUValidationFailed"
+            },
+            "CheckDuplicateExecution": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:dynamodb:query",
+              "Parameters": {
+                "TableName": "${StateTable}",
+                "KeyConditionExpression": "AccountId = :acct",
+                "FilterExpression": "#s IN (:pending, :remaining)",
+                "ExpressionAttributeNames": {
+                  "#s": "Status"
+                },
+                "ExpressionAttributeValues": {
+                  ":acct": { "S.$": "$.target_account_id" },
+                  ":pending": { "S": "pending" },
+                  ":remaining": { "S": "resources_remaining" }
+                },
+                "Select": "COUNT"
+              },
+              "ResultPath": "$.duplicate_check",
+              "Next": "IsDuplicateExecution"
+            },
+            "IsDuplicateExecution": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.duplicate_check.Count",
+                  "NumericGreaterThan": 0,
+                  "Next": "FailDuplicateExecution"
+                }
+              ],
+              "Default": "DiscoverRegions"
+            },
+            "FailDuplicateExecution": {
+              "Type": "Fail",
+              "Cause": "An active execution already exists for this target account",
+              "Error": "DuplicateExecutionDetected"
             },
             "DiscoverRegions": {
               "Type": "Task",
@@ -667,6 +703,7 @@ Resources:
                 Action:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
+                  - dynamodb:Query
                 Resource: !GetAtt StateTable.Arn
         - PolicyName: InvokeEvaluationLambda
           PolicyDocument:

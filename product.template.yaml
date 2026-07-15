@@ -477,6 +477,8 @@ Resources:
       Tags:
         - Key: SCP-ALLOW-PLATFORM
           Value: "true"
+        - Key: core-protection
+          Value: "enabled"
 
   #############################################
   # Lambda - Nuke Runner
@@ -534,6 +536,8 @@ Resources:
       Tags:
         - Key: SCP-ALLOW-PLATFORM
           Value: "true"
+        - Key: core-protection
+          Value: "enabled"
 
   #############################################
   # Lambda - Region Discovery
@@ -596,6 +600,8 @@ Resources:
       Tags:
         - Key: SCP-ALLOW-PLATFORM
           Value: "true"
+        - Key: core-protection
+          Value: "enabled"
 
   #############################################
   # Lambda - Evaluation
@@ -678,6 +684,11 @@ Resources:
                 Action:
                   - sns:Publish
                 Resource: !Ref NotificationTopic
+      Tags:
+        - Key: SCP-ALLOW-PLATFORM
+          Value: "true"
+        - Key: core-protection
+          Value: "enabled"
 
   #############################################
   # SSM Parameter - Nuke Config Base

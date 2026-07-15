@@ -361,12 +361,12 @@ Resources:
                 {
                   "Variable": "$.evaluation.progress_detected",
                   "BooleanEquals": false,
-                  "Next": "FormatFailureMessage"
+                  "Next": "CleanupFailedRows"
                 },
                 {
                   "Variable": "$.evaluation.max_retries_reached",
                   "BooleanEquals": true,
-                  "Next": "FormatFailureMessage"
+                  "Next": "CleanupFailedRows"
                 }
               ],
               "Default": "WaitBeforeRetry"
@@ -396,6 +396,47 @@ Resources:
                 "MessageAttributes.$": "$.MessageAttributes"
               },
               "End": true
+            },
+            "CleanupFailedRows": {
+              "Type": "Map",
+              "Comment": "Mark all remaining regions as failed so future retries are not blocked",
+              "ItemsPath": "$.evaluation.regions_remaining",
+              "MaxConcurrency": 1,
+              "ItemSelector": {
+                "account_id.$": "$.target_account_id",
+                "region.$": "$$.Map.Item.Value",
+                "execution_id.$": "$$.Execution.Id"
+              },
+              "Iterator": {
+                "StartAt": "MarkRegionFailed",
+                "States": {
+                  "MarkRegionFailed": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::aws-sdk:dynamodb:updateItem",
+                    "Parameters": {
+                      "TableName": "${StateTable}",
+                      "Key": {
+                        "AccountId": { "S.$": "$.account_id" },
+                        "Region": { "S.$": "$.region" }
+                      },
+                      "UpdateExpression": "SET #status = :failed, LastUpdated = :ts",
+                      "ConditionExpression": "ExecutionId = :exec_id",
+                      "ExpressionAttributeNames": {
+                        "#status": "Status"
+                      },
+                      "ExpressionAttributeValues": {
+                        ":failed": { "S": "failed" },
+                        ":ts": { "S.$": "$$.State.EnteredTime" },
+                        ":exec_id": { "S.$": "$.execution_id" }
+                      }
+                    },
+                    "ResultPath": null,
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": null,
+              "Next": "FormatFailureMessage"
             },
             "FormatFailureMessage": {
               "Type": "Pass",

@@ -1,6 +1,6 @@
 <mxfile host="Electron">
   <diagram name="Page-1" id="diagram-1">
-    <mxGraphModel dx="2418" dy="1608" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1600" pageHeight="1400" math="0" shadow="0">
+    <mxGraphModel dx="2018" dy="1608" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1600" pageHeight="1400" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -17,7 +17,7 @@
           <mxGeometry height="10" width="1190" x="5" y="70" as="geometry" />
         </mxCell>
         <mxCell id="input-annotation" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=10;fontFamily=Helvetica;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;" value="&lt;b&gt;Execution Input:&lt;/b&gt;&lt;br&gt;{&lt;br&gt;&amp;nbsp;&amp;nbsp;&quot;target_account_id&quot;: &quot;123...&quot;,&lt;br&gt;&amp;nbsp;&amp;nbsp;&quot;no_dry_run&quot;: true | false&lt;br&gt;}" vertex="1">
-          <mxGeometry height="90" width="210" x="-38" y="142" as="geometry" />
+          <mxGeometry height="90" width="210" x="784" y="124" as="geometry" />
         </mxCell>
         <mxCell id="step0-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAF6;strokeColor=#3F51B5;fontStyle=1;fontSize=12;fontColor=#3F51B5;fontFamily=Helvetica;verticalAlign=top;container=1;collapsible=0;shadow=1;strokeWidth=1.5;" value="Step 0: Validate Input" vertex="1">
           <mxGeometry height="80" width="280" x="200" y="150" as="geometry" />

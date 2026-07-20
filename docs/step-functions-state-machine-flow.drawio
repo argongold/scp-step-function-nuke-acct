@@ -19,6 +19,11 @@
           <mxGeometry height="10" width="1190" x="5" y="70" as="geometry" />
         </mxCell>
 
+        <!-- Input Annotation -->
+        <mxCell id="input-annotation" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=10;fontFamily=Helvetica;align=left;verticalAlign=top;spacingLeft=8;spacingTop=5;" value="&lt;b&gt;Execution Input:&lt;/b&gt;&lt;br&gt;{&lt;br&gt;&amp;nbsp;&amp;nbsp;&quot;target_account_id&quot;: &quot;123...&quot;,&lt;br&gt;&amp;nbsp;&amp;nbsp;&quot;no_dry_run&quot;: true | false&lt;br&gt;}" vertex="1" parent="1">
+          <mxGeometry x="560" y="120" width="210" height="90" as="geometry" />
+        </mxCell>
+
         <!-- Step 1: Validate OU - Organizations SDK Call -->
         <mxCell id="step1-box" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE4EC;strokeColor=#E7157B;fontStyle=1;fontSize=12;fontColor=#E7157B;fontFamily=Helvetica;verticalAlign=top;container=1;collapsible=0;shadow=1;strokeWidth=1.5;" value="Step 1: Validate Target Account" vertex="1" parent="1">
           <mxGeometry x="200" y="160" width="280" height="100" as="geometry" />
@@ -37,7 +42,7 @@
 
         <!-- Step 2: Discover Regions -->
         <mxCell id="step2-box" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2E8;strokeColor=#ED7100;fontStyle=1;fontSize=12;fontColor=#ED7100;fontFamily=Helvetica;verticalAlign=top;container=1;collapsible=0;shadow=1;strokeWidth=1.5;" value="Step 2: Discover Enabled Regions" vertex="1" parent="1">
-          <mxGeometry x="200" y="320" width="280" height="100" as="geometry" />
+          <mxGeometry x="200" y="400" width="280" height="100" as="geometry" />
         </mxCell>
         <mxCell id="step2-lambda" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;fontFamily=Helvetica;shadow=1;" value="Region Discovery&lt;div&gt;&lt;i&gt;Lambda&lt;/i&gt;&lt;/div&gt;" vertex="1" parent="step2-box">
           <mxGeometry x="20" y="35" width="48" height="48" as="geometry" />
@@ -48,7 +53,7 @@
 
         <!-- Step 2b: Seed DynamoDB -->
         <mxCell id="step2b-box" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5E6F7;strokeColor=#C925D1;fontStyle=1;fontSize=12;fontColor=#C925D1;fontFamily=Helvetica;verticalAlign=top;container=1;collapsible=0;shadow=1;strokeWidth=1.5;" value="Seed DynamoDB State Table" vertex="1" parent="1">
-          <mxGeometry x="200" y="480" width="280" height="100" as="geometry" />
+          <mxGeometry x="200" y="560" width="280" height="100" as="geometry" />
         </mxCell>
         <mxCell id="step2b-ddb" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;fontFamily=Helvetica;shadow=1;" value="DynamoDB&lt;div&gt;&lt;i&gt;PutItem per region&lt;/i&gt;&lt;/div&gt;" vertex="1" parent="step2b-box">
           <mxGeometry x="20" y="35" width="48" height="48" as="geometry" />
@@ -59,7 +64,7 @@
 
         <!-- Step 3: Fan-Out Map State -->
         <mxCell id="step3-box" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE4EC;strokeColor=#E7157B;fontStyle=1;fontSize=12;fontColor=#E7157B;fontFamily=Helvetica;verticalAlign=top;container=1;collapsible=0;shadow=1;strokeWidth=1.5;" value="Step 3: Map State - Fan-Out (per region)" vertex="1" parent="1">
-          <mxGeometry x="120" y="640" width="440" height="180" as="geometry" />
+          <mxGeometry x="120" y="720" width="440" height="180" as="geometry" />
         </mxCell>
         <mxCell id="step3-choice" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#FF9900;fontSize=10;fontFamily=Helvetica;fontStyle=0;" value="region ==&lt;br&gt;us-east-1?" vertex="1" parent="step3-box">
           <mxGeometry x="20" y="40" width="110" height="60" as="geometry" />
@@ -79,7 +84,7 @@
 
         <!-- Step 4: Update DynamoDB -->
         <mxCell id="step4-box" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5E6F7;strokeColor=#C925D1;fontStyle=1;fontSize=12;fontColor=#C925D1;fontFamily=Helvetica;verticalAlign=top;container=1;collapsible=0;shadow=1;strokeWidth=1.5;" value="Step 4: Update DynamoDB State Table" vertex="1" parent="1">
-          <mxGeometry x="200" y="880" width="280" height="120" as="geometry" />
+          <mxGeometry x="200" y="960" width="280" height="120" as="geometry" />
         </mxCell>
         <mxCell id="step4-ddb" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;fontFamily=Helvetica;shadow=1;" value="DynamoDB&lt;div&gt;&lt;i&gt;UpdateItem&lt;/i&gt;&lt;/div&gt;" vertex="1" parent="step4-box">
           <mxGeometry x="20" y="40" width="48" height="48" as="geometry" />
@@ -90,7 +95,7 @@
 
         <!-- Step 5: Evaluation Lambda -->
         <mxCell id="step5-eval" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2E8;strokeColor=#ED7100;fontStyle=1;fontSize=12;fontColor=#ED7100;fontFamily=Helvetica;verticalAlign=top;container=1;collapsible=0;shadow=1;strokeWidth=1.5;" value="Step 5a: Evaluation Lambda" vertex="1" parent="1">
-          <mxGeometry x="200" y="1060" width="280" height="90" as="geometry" />
+          <mxGeometry x="200" y="1140" width="280" height="90" as="geometry" />
         </mxCell>
         <mxCell id="step5-lambda" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;fontFamily=Helvetica;shadow=1;" value="Evaluation&lt;div&gt;&lt;i&gt;Lambda&lt;/i&gt;&lt;/div&gt;" vertex="1" parent="step5-eval">
           <mxGeometry x="20" y="30" width="48" height="48" as="geometry" />
@@ -101,32 +106,37 @@
 
         <!-- Step 5b: Choice State -->
         <mxCell id="step5-choice" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#FF9900;fontSize=11;fontFamily=Helvetica;fontStyle=1;" value="Decision" vertex="1" parent="1">
-          <mxGeometry x="290" y="1210" width="100" height="80" as="geometry" />
+          <mxGeometry x="290" y="1290" width="100" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Dry Run Path -->
+        <mxCell id="sns-dryrun" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0F7FA;strokeColor=#00838F;fontSize=11;fontFamily=Helvetica;fontStyle=1;" value="SNS: Dry Run&lt;br&gt;&lt;i style=&quot;font-weight:normal&quot;&gt;Scan summary (no deletes)&lt;/i&gt;" vertex="1" parent="1">
+          <mxGeometry x="500" y="1180" width="170" height="50" as="geometry" />
         </mxCell>
 
         <!-- Success Path -->
         <mxCell id="sns-success" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#388E3C;fontSize=11;fontFamily=Helvetica;fontStyle=1;" value="SNS: Success&lt;br&gt;&lt;i style=&quot;font-weight:normal&quot;&gt;All regions complete&lt;/i&gt;" vertex="1" parent="1">
-          <mxGeometry x="500" y="1200" width="160" height="50" as="geometry" />
+          <mxGeometry x="500" y="1260" width="160" height="50" as="geometry" />
         </mxCell>
 
         <!-- Failure Path - Stuck -->
         <mxCell id="sns-fail-stuck" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#D32F2F;fontSize=11;fontFamily=Helvetica;fontStyle=1;" value="SNS: Failure&lt;br&gt;&lt;i style=&quot;font-weight:normal&quot;&gt;No progress (stuck)&lt;/i&gt;" vertex="1" parent="1">
-          <mxGeometry x="500" y="1270" width="160" height="50" as="geometry" />
+          <mxGeometry x="500" y="1330" width="160" height="50" as="geometry" />
         </mxCell>
 
         <!-- Failure Path - Max retries -->
         <mxCell id="sns-fail-max" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#D32F2F;fontSize=11;fontFamily=Helvetica;fontStyle=1;" value="SNS: Failure&lt;br&gt;&lt;i style=&quot;font-weight:normal&quot;&gt;Max retries (5) reached&lt;/i&gt;" vertex="1" parent="1">
-          <mxGeometry x="500" y="1340" width="160" height="50" as="geometry" />
+          <mxGeometry x="500" y="1400" width="160" height="50" as="geometry" />
         </mxCell>
 
         <!-- Wait + Retry Path -->
         <mxCell id="wait-state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1976D2;fontSize=11;fontFamily=Helvetica;fontStyle=1;" value="Wait 30 min" vertex="1" parent="1">
-          <mxGeometry x="80" y="1220" width="100" height="50" as="geometry" />
+          <mxGeometry x="80" y="1300" width="100" height="50" as="geometry" />
         </mxCell>
 
         <!-- End states -->
         <mxCell id="end-success" style="ellipse;whiteSpace=wrap;html=1;fillColor=#388E3C;strokeColor=#1B5E20;fontSize=11;fontFamily=Helvetica;fontStyle=1;fontColor=#FFFFFF;" value="END" vertex="1" parent="1">
-          <mxGeometry x="730" y="1270" width="60" height="40" as="geometry" />
+          <mxGeometry x="740" y="1310" width="60" height="40" as="geometry" />
         </mxCell>
 
         <!-- EDGES -->
@@ -145,11 +155,21 @@
         </mxCell>
 
         <!-- Step 1 -> Step 2 (Yes path) -->
-        <mxCell id="edge-s1-s2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Helvetica;strokeColor=#333333;" edge="1" parent="1" source="step1-box" target="step2-box">
+        <mxCell id="edge-s1-s2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Helvetica;strokeColor=#333333;" edge="1" parent="1" source="step1-box" target="construct-role-arn">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="edge-s1-s2-label" value="Yes - in OU" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];labelBackgroundColor=none;fontSize=10;fontFamily=Helvetica;fontStyle=2;" connectable="0" vertex="1" parent="edge-s1-s2">
           <mxGeometry relative="1" x="-0.3" y="0" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Construct Target Role ARN Pass State -->
+        <mxCell id="construct-role-arn" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1976D2;fontStyle=1;fontSize=11;fontColor=#1976D2;fontFamily=Helvetica;shadow=1;strokeWidth=1.5;" value="Construct Target Role ARN&lt;br&gt;&lt;i style=&quot;font-weight:normal;font-size:9px&quot;&gt;Pass: States.Format(&lt;br&gt;'arn:aws:iam::{}:role/{TargetRoleName}',&lt;br&gt;target_account_id)&lt;/i&gt;" vertex="1" parent="1">
+          <mxGeometry x="225" y="280" width="230" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Construct Role ARN -> Step 2 -->
+        <mxCell id="edge-arn-s2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Helvetica;strokeColor=#333333;" edge="1" parent="1" source="construct-role-arn" target="step2-box">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
         <!-- Step 2 -> Step 2b -->
@@ -205,6 +225,14 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
+        <!-- Choice -> Dry Run -->
+        <mxCell id="edge-choice-dryrun" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Helvetica;strokeColor=#00838F;" edge="1" parent="1" source="step5-choice" target="sns-dryrun">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-choice-dryrun-label" value="no_dry_run == false" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];labelBackgroundColor=none;fontSize=10;fontFamily=Helvetica;fontStyle=2;fontColor=#00838F;" connectable="0" vertex="1" parent="edge-choice-dryrun">
+          <mxGeometry relative="1" x="-0.3" y="0" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
         <!-- Choice -> Success -->
         <mxCell id="edge-choice-success" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Helvetica;strokeColor=#388E3C;" edge="1" parent="1" source="step5-choice" target="sns-success">
           <mxGeometry relative="1" as="geometry" />
@@ -241,8 +269,8 @@
         <mxCell id="edge-wait-loop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Helvetica;strokeColor=#1976D2;exitX=0.5;exitY=0;entryX=0;entryY=0.5;" edge="1" parent="1" source="wait-state" target="step3-box">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="130" y="730" />
-              <mxPoint x="80" y="730" />
+              <mxPoint x="130" y="810" />
+              <mxPoint x="80" y="810" />
             </Array>
           </mxGeometry>
         </mxCell>
@@ -250,6 +278,10 @@
           <mxGeometry relative="1" x="-0.5" y="0" as="geometry"><mxPoint as="offset" /></mxGeometry>
         </mxCell>
 
+        <!-- SNS Dry Run -> End -->
+        <mxCell id="edge-dryrun-end" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Helvetica;strokeColor=#00838F;" edge="1" parent="1" source="sns-dryrun" target="end-success">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
         <!-- SNS Success -> End -->
         <mxCell id="edge-success-end" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Helvetica;strokeColor=#388E3C;" edge="1" parent="1" source="sns-success" target="end-success">
           <mxGeometry relative="1" as="geometry" />

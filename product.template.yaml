@@ -16,6 +16,11 @@ Parameters:
     Type: String
     Description: AWS Organizations ID (e.g., o-xxxxxxxxxx) used to restrict cross-account role assumption to the organization.
 
+  TargetRoleName:
+    Type: String
+    Default: "NukeExecutionRole"
+    Description: Name of the IAM role to assume in the target account for nuke operations.
+
 
 Resources:
 
@@ -86,12 +91,21 @@ Resources:
                   "Next": "FailDuplicateExecution"
                 }
               ],
-              "Default": "DiscoverRegions"
+              "Default": "ConstructTargetRoleArn"
             },
             "FailDuplicateExecution": {
               "Type": "Fail",
               "Cause": "An active execution already exists for this target account",
               "Error": "DuplicateExecutionDetected"
+            },
+            "ConstructTargetRoleArn": {
+              "Type": "Pass",
+              "Parameters": {
+                "target_account_id.$": "$.target_account_id",
+                "no_dry_run.$": "$.no_dry_run",
+                "target_role_arn.$": "States.Format('arn:aws:iam::{}:role/${TargetRoleName}', $.target_account_id)"
+              },
+              "Next": "DiscoverRegions"
             },
             "DiscoverRegions": {
               "Type": "Task",
@@ -354,6 +368,11 @@ Resources:
               "Type": "Choice",
               "Choices": [
                 {
+                  "Variable": "$.no_dry_run",
+                  "BooleanEquals": false,
+                  "Next": "FormatDryRunMessage"
+                },
+                {
                   "Variable": "$.evaluation.all_complete",
                   "BooleanEquals": true,
                   "Next": "FormatSuccessMessage"
@@ -387,6 +406,32 @@ Resources:
               "Next": "NotifySuccess"
             },
             "NotifySuccess": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:sns:publish",
+              "Parameters": {
+                "TopicArn.$": "$.TopicArn",
+                "Subject.$": "$.Subject",
+                "Message.$": "$.Message",
+                "MessageAttributes.$": "$.MessageAttributes"
+              },
+              "End": true
+            },
+            "FormatDryRunMessage": {
+              "Type": "Pass",
+              "Parameters": {
+                "TopicArn": "${NotificationTopic}",
+                "Subject.$": "States.Format('AWS Nuke Dry Run Complete: Account {}', $.target_account_id)",
+                "Message.$": "States.Format('Account {} dry run scan completed (no resources deleted).\nRegions scanned: {}\nRegions with resources found: {}\nSummary: {}\nExecution: {}', $.target_account_id, States.JsonToString($.evaluation.regions_complete), States.JsonToString($.evaluation.regions_remaining), States.JsonToString($.evaluation.summary), $$.Execution.Id)",
+                "MessageAttributes": {
+                  "outcome": {
+                    "DataType": "String",
+                    "StringValue": "dry_run"
+                  }
+                }
+              },
+              "Next": "NotifyDryRun"
+            },
+            "NotifyDryRun": {
               "Type": "Task",
               "Resource": "arn:aws:states:::aws-sdk:sns:publish",
               "Parameters": {

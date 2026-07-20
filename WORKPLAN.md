@@ -2,6 +2,18 @@
 
 This is an AWS account teardown orchestrator state machine implemented as an AWS Service Catalog product.
 
+**State machine input:**
+```json
+{
+  "target_account_id": "123456789012",
+  "no_dry_run": true
+}
+```
+
+The `target_role_arn` is constructed internally using the `TargetRoleName` CloudFormation parameter (default: `NukeExecutionRole`) and the `target_account_id`. A `ConstructTargetRoleArn` Pass state builds the ARN via `States.Format('arn:aws:iam::{}:role/<TargetRoleName>', $.target_account_id)` after the duplicate execution check.
+
+**Dry-run behavior:** When `no_dry_run` is `false`, the state machine completes after a single scan pass (Steps 1–4 + evaluation) without entering the retry loop. An SNS notification with `outcome=dry_run` is published with the scan summary.
+
 ---
 
 ## Step 1: Validate Target Account (OU Check) ✅
@@ -45,6 +57,7 @@ This is an AWS account teardown orchestrator state machine implemented as an AWS
   "target_role_arn": "arn:aws:iam::123456789012:role/NukeExecutionRole"
 }
 ```
+*(Note: `target_role_arn` is constructed internally by the `ConstructTargetRoleArn` Pass state, not passed as execution input)*
 
 **Lambda output:**
 ```json
@@ -102,6 +115,7 @@ This is an AWS account teardown orchestrator state machine implemented as an AWS
   "no_dry_run": true
 }
 ```
+*(Note: `target_role_arn` is constructed internally by the `ConstructTargetRoleArn` Pass state, not passed as execution input)*
 
 **Map state iterator flow (per item):**
 
@@ -381,6 +395,9 @@ Branches based on evaluation Lambda output:
 
 ```
 Choice state:
+  0. $.no_dry_run == false (dry run — single pass only)
+       → Go to: SNS Dry Run Notification (scan summary) → End
+
   1. $.all_complete == true
        → Go to: SNS Success Notification
 
@@ -394,7 +411,7 @@ Choice state:
        → Go to: Wait State (30 min) → Loop back to Step 3
 ```
 
-**Evaluation order matters:** Check `all_complete` first, then `no progress` (stuck), then `max retries`, then default to retry.
+**Evaluation order matters:** Check `no_dry_run` first (short-circuit dry runs), then `all_complete`, then `no progress` (stuck), then `max retries`, then default to retry.
 
 ---
 
@@ -428,6 +445,25 @@ When retrying, the state machine loops back to Step 3 with a modified input:
 ### 5e: SNS Notifications
 
 **Single SNS topic** with message attribute `"outcome"` for subscriber filtering.
+
+**Dry run notification:**
+```json
+{
+  "TopicArn": "<sns-topic-arn>",
+  "Message": "<formatted message>",
+  "Subject": "AWS Nuke Dry Run Complete: Account 123456789012",
+  "MessageAttributes": {
+    "outcome": { "DataType": "String", "StringValue": "dry_run" }
+  }
+}
+```
+
+**Dry run message content (built by Pass state):**
+- Account ID
+- Regions scanned (from `regions_complete`)
+- Regions with resources found (from `regions_remaining`)
+- Scan summary per region
+- Step Functions execution console link
 
 **Success notification:**
 ```json
@@ -480,10 +516,11 @@ When retrying, the state machine loops back to Step 3 with a modified input:
 Step 4 output
   → Task: Invoke Evaluation Lambda
   → Choice:
-      - all_complete → Pass (format success msg) → Task: SNS Publish (success) → End
-      - no progress  → Pass (format failure msg) → Task: SNS Publish (failure) → End
-      - max retries  → Pass (format failure msg) → Task: SNS Publish (failure) → End
-      - default      → Wait (30 min) → Pass (reshape input with regions_remaining) → Step 3
+      - dry run       → Pass (format dry run msg) → Task: SNS Publish (dry_run) → End
+      - all_complete  → Pass (format success msg) → Task: SNS Publish (success) → End
+      - no progress   → Pass (format failure msg) → Task: SNS Publish (failure) → End
+      - max retries   → Pass (format failure msg) → Task: SNS Publish (failure) → End
+      - default       → Wait (30 min) → Pass (reshape input with regions_remaining) → Step 3
 ```
 
 **⚠️ Review Notes (to address during implementation):**

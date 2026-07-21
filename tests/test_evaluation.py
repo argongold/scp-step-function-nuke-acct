@@ -61,10 +61,10 @@ class TestEvaluationHandler:
             "ExecutionId": base_event["execution_id"],
             "RunCount": Decimal("1"),
             "Status": "complete",
-            "RemainingCount": Decimal("0"),
-            "PreviousRemainingCount": Decimal("10"),
+            "RemainingResCount": Decimal("0"),
+            "PreviousRemainingResCount": Decimal("10"),
             "RemovedCount": Decimal("10"),
-            "FailedResources": "[]",
+            "Resources": "[]",
         })
         dynamodb_table.put_item(Item={
             "AccountId": "123456789012",
@@ -72,10 +72,10 @@ class TestEvaluationHandler:
             "ExecutionId": base_event["execution_id"],
             "RunCount": Decimal("1"),
             "Status": "complete",
-            "RemainingCount": Decimal("0"),
-            "PreviousRemainingCount": Decimal("5"),
+            "RemainingResCount": Decimal("0"),
+            "PreviousRemainingResCount": Decimal("5"),
             "RemovedCount": Decimal("5"),
-            "FailedResources": "[]",
+            "Resources": "[]",
         })
 
         from importlib import import_module
@@ -97,10 +97,10 @@ class TestEvaluationHandler:
             "ExecutionId": base_event["execution_id"],
             "RunCount": Decimal("2"),
             "Status": "resources_remaining",
-            "RemainingCount": Decimal("5"),
-            "PreviousRemainingCount": Decimal("10"),
+            "RemainingResCount": Decimal("5"),
+            "PreviousRemainingResCount": Decimal("10"),
             "RemovedCount": Decimal("5"),
-            "FailedResources": '["s3-bucket-xyz"]',
+            "Resources": '["s3-bucket-xyz"]',
         })
         dynamodb_table.put_item(Item={
             "AccountId": "123456789012",
@@ -108,10 +108,10 @@ class TestEvaluationHandler:
             "ExecutionId": base_event["execution_id"],
             "RunCount": Decimal("2"),
             "Status": "complete",
-            "RemainingCount": Decimal("0"),
-            "PreviousRemainingCount": Decimal("3"),
+            "RemainingResCount": Decimal("0"),
+            "PreviousRemainingResCount": Decimal("3"),
             "RemovedCount": Decimal("3"),
-            "FailedResources": "[]",
+            "Resources": "[]",
         })
 
         from importlib import import_module
@@ -123,7 +123,7 @@ class TestEvaluationHandler:
         assert result["progress_detected"] is True
         assert result["regions_remaining"] == ["us-east-1"]
         assert result["stuck_regions"] == []
-        assert result["summary"]["us-east-1"]["remaining_count"] == 5
+        assert result["summary"]["us-east-1"]["remaining_res_count"] == 5
 
     @mock_aws
     def test_stuck_regions_no_progress(self, aws_credentials, dynamodb_table, mock_context, base_event):
@@ -134,10 +134,10 @@ class TestEvaluationHandler:
             "ExecutionId": base_event["execution_id"],
             "RunCount": Decimal("3"),
             "Status": "resources_remaining",
-            "RemainingCount": Decimal("5"),
-            "PreviousRemainingCount": Decimal("5"),
+            "RemainingResCount": Decimal("5"),
+            "PreviousRemainingResCount": Decimal("5"),
             "RemovedCount": Decimal("0"),
-            "FailedResources": '["s3-bucket-xyz"]',
+            "Resources": '["s3-bucket-xyz"]',
         })
 
         from importlib import import_module
@@ -158,10 +158,10 @@ class TestEvaluationHandler:
             "ExecutionId": base_event["execution_id"],
             "RunCount": Decimal("5"),
             "Status": "resources_remaining",
-            "RemainingCount": Decimal("3"),
-            "PreviousRemainingCount": Decimal("5"),
+            "RemainingResCount": Decimal("3"),
+            "PreviousRemainingResCount": Decimal("5"),
             "RemovedCount": Decimal("2"),
-            "FailedResources": "[]",
+            "Resources": "[]",
         })
 
         from importlib import import_module
@@ -174,17 +174,17 @@ class TestEvaluationHandler:
 
     @mock_aws
     def test_error_region_always_retried(self, aws_credentials, dynamodb_table, mock_context, base_event):
-        """Regions with remaining_count=-1 (error) should not be marked as stuck."""
+        """Regions with remaining_res_count=-1 (error) should not be marked as stuck."""
         dynamodb_table.put_item(Item={
             "AccountId": "123456789012",
             "Region": "ap-southeast-1",
             "ExecutionId": base_event["execution_id"],
             "RunCount": Decimal("2"),
             "Status": "resources_remaining",
-            "RemainingCount": Decimal("-1"),
-            "PreviousRemainingCount": Decimal("-1"),
+            "RemainingResCount": Decimal("-1"),
+            "PreviousRemainingResCount": Decimal("-1"),
             "RemovedCount": Decimal("0"),
-            "FailedResources": "[]",
+            "Resources": "[]",
         })
 
         from importlib import import_module

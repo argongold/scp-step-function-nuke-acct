@@ -57,18 +57,18 @@ def handler(event: dict, context: LambdaContext) -> dict:
     for item in items:
         region = item["Region"]
         status = item["Status"]
-        remaining_count = int(item.get("RemainingCount", 0))
-        previous_remaining = int(item.get("PreviousRemainingCount", 0))
+        remaining_res_count = int(item.get("RemainingResCount", 0))
+        previous_remaining = int(item.get("PreviousRemainingResCount", 0))
         removed_count = int(item.get("RemovedCount", 0))
-        failed_resources = item.get("FailedResources", "[]")
+        resources = item.get("Resources", "[]")
         item_run_count = int(item.get("RunCount", 0))
 
-        # Parse failed_resources if stored as JSON string
-        if isinstance(failed_resources, str):
+        # Parse resources if stored as JSON string
+        if isinstance(resources, str):
             try:
-                failed_resources = json.loads(failed_resources)
+                resources = json.loads(resources)
             except (json.JSONDecodeError, TypeError):
-                failed_resources = []
+                resources = []
 
         run_count = max(run_count, item_run_count)
         total_removed += removed_count
@@ -78,13 +78,13 @@ def handler(event: dict, context: LambdaContext) -> dict:
         else:
             regions_remaining.append(region)
             summary[region] = {
-                "remaining_count": remaining_count,
-                "failed_resources": failed_resources,
+                "remaining_res_count": remaining_res_count,
+                "resources": resources,
             }
 
             # Check if region is stuck (no progress between runs)
-            # remaining_count == -1 means error/unknown — always retry
-            if remaining_count >= 0 and previous_remaining > 0 and remaining_count >= previous_remaining:
+            # remaining_res_count == -1 means error/unknown — always retry
+            if remaining_res_count >= 0 and previous_remaining > 0 and remaining_res_count >= previous_remaining:
                 stuck_regions.append(region)
 
     all_complete = len(regions_remaining) == 0

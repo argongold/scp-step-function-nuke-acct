@@ -167,7 +167,7 @@ Resources:
                         "ExecutionId": { "S.$": "$.execution_id" },
                         "RunCount": { "N": "0" },
                         "Status": { "S": "pending" },
-                        "RemainingCount": { "N": "0" },
+                        "RemainingResCount": { "N": "0" },
                         "LastUpdated": { "S.$": "$$.State.EnteredTime" }
                       }
                     },
@@ -233,12 +233,10 @@ Resources:
                       "Payload.$": "$"
                     },
                     "ResultSelector": {
-                      "status.$": "$.Payload.status",
                       "region.$": "$.Payload.region",
-                      "remaining_count.$": "$.Payload.remaining_count",
+                      "remaining_res_count.$": "$.Payload.remaining_res_count",
                       "removed_count.$": "$.Payload.removed_count",
-                      "failed_resources.$": "$.Payload.failed_resources",
-                      "error.$": "$.Payload.error"
+                      "resources.$": "$.Payload.resources"
                     },
                     "Catch": [
                       {
@@ -252,12 +250,10 @@ Resources:
                   "FormatItemError": {
                     "Type": "Pass",
                     "Parameters": {
-                      "status": "error",
                       "region.$": "$.region",
-                      "remaining_count": -1,
+                      "remaining_res_count": -1,
                       "removed_count": 0,
-                      "failed_resources": [],
-                      "error.$": "$.error_info.Cause"
+                      "resources": []
                     },
                     "End": true
                   }
@@ -276,20 +272,15 @@ Resources:
                 "execution_id.$": "$$.Execution.Id"
               },
               "Iterator": {
-                "StartAt": "NormalizeStatus",
+                "StartAt": "DeriveStatus",
                 "States": {
-                  "NormalizeStatus": {
+                  "DeriveStatus": {
                     "Type": "Choice",
                     "Choices": [
                       {
-                        "Variable": "$.result.status",
-                        "StringEquals": "complete",
+                        "Variable": "$.result.remaining_res_count",
+                        "NumericEquals": 0,
                         "Next": "SetStatusComplete"
-                      },
-                      {
-                        "Variable": "$.result.status",
-                        "StringEquals": "resources_remaining",
-                        "Next": "SetStatusRemaining"
                       }
                     ],
                     "Default": "SetStatusRemaining"
@@ -300,7 +291,7 @@ Resources:
                       "result.$": "$.result",
                       "account_id.$": "$.account_id",
                       "execution_id.$": "$.execution_id",
-                      "normalized_status": "complete"
+                      "derived_status": "complete"
                     },
                     "Next": "UpdateRegionItem"
                   },
@@ -310,7 +301,7 @@ Resources:
                       "result.$": "$.result",
                       "account_id.$": "$.account_id",
                       "execution_id.$": "$.execution_id",
-                      "normalized_status": "resources_remaining"
+                      "derived_status": "resources_remaining"
                     },
                     "Next": "UpdateRegionItem"
                   },
@@ -323,20 +314,18 @@ Resources:
                         "AccountId": { "S.$": "$.account_id" },
                         "Region": { "S.$": "$.result.region" }
                       },
-                      "UpdateExpression": "SET #status = :status, PreviousRemainingCount = RemainingCount, RemainingCount = :remaining, RemovedCount = :removed, FailedResources = :failed, RunCount = RunCount + :one, LastUpdated = :ts, #error = :err",
+                      "UpdateExpression": "SET #status = :status, PreviousRemainingResCount = RemainingResCount, RemainingResCount = :remaining, RemovedCount = :removed, Resources = :resources, RunCount = RunCount + :one, LastUpdated = :ts",
                       "ConditionExpression": "ExecutionId = :exec_id",
                       "ExpressionAttributeNames": {
-                        "#status": "Status",
-                        "#error": "Error"
+                        "#status": "Status"
                       },
                       "ExpressionAttributeValues": {
-                        ":status": { "S.$": "$.normalized_status" },
-                        ":remaining": { "N.$": "States.Format('{}', $.result.remaining_count)" },
+                        ":status": { "S.$": "$.derived_status" },
+                        ":remaining": { "N.$": "States.Format('{}', $.result.remaining_res_count)" },
                         ":removed": { "N.$": "States.Format('{}', $.result.removed_count)" },
-                        ":failed": { "S.$": "States.JsonToString($.result.failed_resources)" },
+                        ":resources": { "S.$": "States.JsonToString($.result.resources)" },
                         ":one": { "N": "1" },
                         ":ts": { "S.$": "$$.State.EnteredTime" },
-                        ":err": { "S.$": "States.Format('{}', $.result.error)" },
                         ":exec_id": { "S.$": "$.execution_id" }
                       }
                     },

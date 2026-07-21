@@ -35,8 +35,28 @@ Resources:
       DefinitionString: !Sub |
         {
           "Comment": "AWS Account Teardown Orchestrator - Nuke account resources via per-region fan-out",
-          "StartAt": "ValidateOU",
+          "StartAt": "ValidateInput",
           "States": {
+            "ValidateInput": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    { "Variable": "$.target_account_id", "IsPresent": true },
+                    { "Variable": "$.target_account_id", "IsString": true },
+                    { "Variable": "$.no_dry_run", "IsPresent": true },
+                    { "Variable": "$.no_dry_run", "IsBoolean": true }
+                  ],
+                  "Next": "ValidateOU"
+                }
+              ],
+              "Default": "FailMissingInput"
+            },
+            "FailMissingInput": {
+              "Type": "Fail",
+              "Error": "InputValidationFailed",
+              "Cause": "Missing or invalid required input. Expected: {\"target_account_id\": \"<string>\", \"no_dry_run\": <boolean>}"
+            },
             "ValidateOU": {
               "Type": "Task",
               "Resource": "arn:aws:states:::aws-sdk:organizations:listParents",

@@ -16,6 +16,30 @@ The `target_role_arn` is constructed internally using the `TargetRoleName` Cloud
 
 ---
 
+## Step 0: Validate Input ✅
+
+**Approach:** Choice state with `IsPresent` and type checks — no Lambda needed.
+
+**What we're checking:**
+- `target_account_id` is present and is a string
+- `no_dry_run` is present and is a boolean
+
+**Implementation:**
+1. Choice state (`ValidateInput`) as the `StartAt` state
+   - Condition: `And` rule checking both parameters are present and correctly typed
+   - Pass → proceed to Step 1 (ValidateOU)
+   - Fail → `FailMissingInput` state with descriptive error
+
+**Fail state:**
+- Error: `InputValidationFailed`
+- Cause: `Missing or invalid required input. Expected: {"target_account_id": "<string>", "no_dry_run": <boolean>}`
+
+**Notes:**
+- This prevents cryptic `States.Runtime` errors from surfacing later in the execution when parameters are missing
+- No IAM permissions required — pure Choice/Fail states
+
+---
+
 ## Step 1: Validate Target Account (OU Check) ✅
 
 **Approach:** Direct AWS SDK integration from Step Functions (no Lambda needed)

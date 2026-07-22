@@ -45,23 +45,73 @@ The `target_role_arn` is constructed internally using the `TargetRoleName` Cloud
 **Approach:** Direct AWS SDK integration from Step Functions (no Lambda needed)
 
 **What we're checking:**
-- The target account belongs to a specific OU (e.g., a "decommission" OU)
+- The target account belongs to a specific OU (e.g., a "quarantine" OU)
 - Blocklist check is NOT needed here — already handled by `nuke-config-base.yaml` filters
 
 **Implementation:**
-1. Task state calling `arn:aws:states:::aws-sdk:organizations:listParents`
+1. Task state (`ValidateOU`) calling `arn:aws:states:::aws-sdk:organizations:listParents`
    - Input: `{ "ChildId": "<target_account_id>" }`
-   - Output: Array of parent OUs
-2. Choice state evaluating whether the returned parent OU ID matches the expected decommission OU ID
-   - Match → proceed to Step 2
-   - No match → fail execution with descriptive error ("Account not in decommission OU")
+   - Output: Array of parent OUs (stored in `$.ou_result`)
+2. Choice state (`CheckOU`) evaluating whether the returned parent OU ID matches the expected quarantine OU ID
+   - Match → proceed to Duplicate Execution Check
+   - No match → `FailNotInOU` state with descriptive error ("Account is not in the Quarantine OU")
+
+**Fail state:**
+- Error: `OUValidationFailed`
+- Cause: `Account is not in the Quarantine OU`
 
 **IAM permissions required on StepFunctionsExecutionRole:**
 - `organizations:ListParents`
 
 **Notes:**
 - Organizations API is global (us-east-1 endpoint), but Step Functions SDK integration handles routing — no special config needed
-- The expected OU ID can be hardcoded in the Choice state condition, or pulled from an SSM parameter if we want it configurable
+- The expected OU ID is sourced from the `QuarantineOuId` CloudFormation parameter
+
+---
+
+## Step 1b: Duplicate Execution Check ✅
+
+**Approach:** DynamoDB query to detect if another execution is already processing this account. Prevents concurrent teardowns of the same account.
+
+**What we're checking:**
+- No existing DynamoDB rows for this account with `Status` of `pending` or `resources_remaining`
+- If active rows exist, another execution is already in progress → fail fast
+
+**Implementation:**
+1. Task state (`CheckDuplicateExecution`) calling `arn:aws:states:::aws-sdk:dynamodb:query`
+   - Query by `AccountId` (PK) with filter: `Status IN (pending, resources_remaining)`
+   - Uses `Select: COUNT` — only needs the count, not full items
+   - Result stored in `$.duplicate_check`
+2. Choice state (`IsDuplicateExecution`) checking `$.duplicate_check.Count > 0`
+   - Count > 0 → `FailDuplicateExecution`
+   - Count = 0 → proceed to `ConstructTargetRoleArn`
+
+**DynamoDB query parameters:**
+```json
+{
+  "TableName": "<StateTable>",
+  "KeyConditionExpression": "AccountId = :acct",
+  "FilterExpression": "#s IN (:pending, :remaining)",
+  "ExpressionAttributeNames": { "#s": "Status" },
+  "ExpressionAttributeValues": {
+    ":acct": { "S.$": "$.target_account_id" },
+    ":pending": { "S": "pending" },
+    ":remaining": { "S": "resources_remaining" }
+  },
+  "Select": "COUNT"
+}
+```
+
+**Fail state:**
+- Error: `DuplicateExecutionDetected`
+- Cause: `An active execution already exists for this target account`
+
+**IAM permissions required on StepFunctionsExecutionRole:**
+- `dynamodb:Query` on the state table
+
+**Notes:**
+- This is a DynamoDB-level dedup, complementing any trigger-level dedup (e.g., using `target_account_id` as execution name)
+- The `CleanupFailedRows` step (in Step 5) marks regions as `failed` when an execution terminates without completing, ensuring this check doesn't permanently block future retries
 
 ---
 
@@ -103,7 +153,7 @@ The `target_role_arn` is constructed internally using the `TargetRoleName` Cloud
   "ExecutionId": "<step-functions-execution-arn>",
   "RunCount": 0,
   "Status": "pending",
-  "RemainingCount": 0,
+  "RemainingResCount": 0,
   "LastUpdated": "<iso-timestamp>"
 }
 ```
@@ -185,44 +235,40 @@ For all other regions:
 }
 ```
 
-**Error handling — per-item catch (ItemCatcher):**
-- Each Lambda invocation has a Catch block so one region failing doesn't abort the entire Map
-- On catch, the iterator returns an error result for that region:
+**Error handling — per-item Catch:**
+- Each Lambda invocation task has a `Catch` block (catches `States.ALL`) so one region failing doesn't abort the entire Map
+- On catch, a `FormatItemError` Pass state returns a sentinel error result for that region:
 ```json
 {
-  "status": "error",
   "region": "<region>",
-  "remaining_count": 0,
+  "remaining_res_count": -1,
   "removed_count": 0,
-  "failed_resources": [],
-  "error": "Lambda invocation failed: <error message>"
+  "resources": []
 }
 ```
-- This allows Step 4/5 to treat failed invocations the same as `resources_remaining` — they'll be retried
+- The `-1` sentinel for `remaining_res_count` distinguishes "unknown due to error" from "zero remaining" — Step 4 treats any non-zero value (including -1) as `resources_remaining`, ensuring error regions are always retried
 
 **Lambda invocation task state:**
 - Resource: `arn:aws:states:::lambda:invoke`
 - Parameters:
   - `FunctionName`: nuke-runner Lambda ARN
-  - `Payload.$`: the constructed payload from the Pass state
+  - `Payload.$`: `$` (the full constructed payload from the Pass state)
 - `ResultSelector` extracts the Lambda response from the `Payload` wrapper:
 ```json
 {
-  "status.$": "$.Payload.status",
   "region.$": "$.Payload.region",
-  "remaining_count.$": "$.Payload.remaining_count",
+  "remaining_res_count.$": "$.Payload.remaining_res_count",
   "removed_count.$": "$.Payload.removed_count",
-  "failed_resources.$": "$.Payload.failed_resources",
-  "error.$": "$.Payload.error"
+  "resources.$": "$.Payload.resources"
 }
 ```
 
 **Map state output (array of results, one per region):**
 ```json
 [
-  { "status": "complete", "region": "eu-west-1", "remaining_count": 0, "removed_count": 45, "failed_resources": [], "error": null },
-  { "status": "resources_remaining", "region": "us-east-1", "remaining_count": 12, "removed_count": 30, "failed_resources": ["s3-bucket-xyz"], "error": null },
-  { "status": "error", "region": "ap-southeast-1", "remaining_count": 0, "removed_count": 0, "failed_resources": [], "error": "Lambda timeout" }
+  { "region": "eu-west-1", "remaining_res_count": 0, "removed_count": 45, "resources": [] },
+  { "region": "us-east-1", "remaining_res_count": 12, "removed_count": 30, "resources": [{"type": "S3Bucket", "id": "s3-bucket-xyz"}] },
+  { "region": "ap-southeast-1", "remaining_res_count": -1, "removed_count": 0, "resources": [] }
 ]
 ```
 
@@ -236,9 +282,7 @@ For all other regions:
 - The `States.Array()` intrinsic function wraps a single value into a one-element array (used for non-us-east-1 regions)
 - `ResultPath: null` is NOT used — we need the full results array for Step 4
 
-**⚠️ Review Notes (to address during implementation):**
-- **Lambda timeout produces no structured response:** If the nuke-runner Lambda times out (15 min), the invocation fails without returning a payload. The `ItemCatcher` handles the failure, but the hardcoded `"remaining_count": 0` in the catch result is misleading — a timed-out region likely still has resources. Consider using a sentinel value (e.g., `-1`) so Step 5 can distinguish "zero remaining" from "unknown due to error" and always retry error regions.
-- **`ItemCatcher` support:** Inline Map `ItemCatcher` was added in 2023. Confirm the CloudFormation tooling/ASL version you're using supports it. If not, fall back to a `Catch` on the entire Map state (less granular).
+**⚠️ Review Notes:**
 - **Execution history event limit:** With ~20 regions × multiple retry loops × multiple states per iteration, monitor the 25,000 event history limit. Unlikely to hit with 5 max retries, but worth tracking.
 
 ---
@@ -247,78 +291,72 @@ For all other regions:
 
 **Approach:** Step Functions SDK integration (`dynamodb:UpdateItem`) directly — no Lambda. Iterate over the Map state output (array of per-region results) using a second Map state (sequential) to update each region's row.
 
-**Input (from Step 3 Map state output):**
+**Input (from Step 3 Map state output stored in `$.nuke_results`):**
 ```json
 {
-  "results": [
-    { "status": "complete", "region": "eu-west-1", "remaining_count": 0, "removed_count": 45, "failed_resources": [], "error": null },
-    { "status": "resources_remaining", "region": "us-east-1", "remaining_count": 12, "removed_count": 30, "failed_resources": ["s3-bucket-xyz"], "error": null },
-    { "status": "error", "region": "ap-southeast-1", "remaining_count": 0, "removed_count": 0, "failed_resources": [], "error": "Lambda timeout" }
+  "nuke_results": [
+    { "region": "eu-west-1", "remaining_res_count": 0, "removed_count": 45, "resources": [] },
+    { "region": "us-east-1", "remaining_res_count": 12, "removed_count": 30, "resources": [{"type": "S3Bucket", "id": "s3-bucket-xyz"}] },
+    { "region": "ap-southeast-1", "remaining_res_count": -1, "removed_count": 0, "resources": [] }
   ],
-  "target_account_id": "123456789012",
-  "execution_id": "<step-functions-execution-arn>"
+  "target_account_id": "123456789012"
 }
 ```
 
-**Iteration:** Sequential Map state over `$.results` array. Each iteration performs a single `dynamodb:UpdateItem` call.
+**Iteration:** Sequential Map state (`UpdateDynamoDB`) over `$.nuke_results` array. `MaxConcurrency: 1`. Each iteration performs status derivation + a single `dynamodb:UpdateItem` call.
+
+**Status derivation (inside the update Map iterator):**
+
+Status is derived from `remaining_res_count` — no `status` field from the Lambda is needed:
+
+- `remaining_res_count == 0` → `derived_status = "complete"`
+- `remaining_res_count != 0` (including `-1` error sentinel) → `derived_status = "resources_remaining"`
+
+**Implementation — iterator flow inside the update Map:**
+
+```
+For each result in nuke_results[]:
+  → Choice state (DeriveStatus): Is result.remaining_res_count == 0?
+      - Yes → Pass state (SetStatusComplete): set derived_status = "complete"
+      - No  → Pass state (SetStatusRemaining): set derived_status = "resources_remaining"
+  → Task state (UpdateRegionItem): dynamodb:UpdateItem
+```
 
 **DynamoDB UpdateItem per region:**
 
 ```json
 {
-  "TableName": "NukeStateTable",
+  "TableName": "<StateTable>",
   "Key": {
-    "AccountId": { "S.$": "$.target_account_id" },
+    "AccountId": { "S.$": "$.account_id" },
     "Region": { "S.$": "$.result.region" }
   },
-  "UpdateExpression": "SET #status = :status, PreviousRemainingCount = RemainingCount, RemainingCount = :remaining, RemovedCount = :removed, FailedResources = :failed, RunCount = RunCount + :one, LastUpdated = :ts, #error = :err",
+  "UpdateExpression": "SET #status = :status, PreviousRemainingResCount = RemainingResCount, RemainingResCount = :remaining, RemovedCount = :removed, Resources = :resources, RunCount = RunCount + :one, LastUpdated = :ts",
   "ConditionExpression": "ExecutionId = :exec_id",
   "ExpressionAttributeNames": {
-    "#status": "Status",
-    "#error": "Error"
+    "#status": "Status"
   },
   "ExpressionAttributeValues": {
-    ":status": { "S.$": "$.result.normalized_status" },
-    ":remaining": { "N.$": "States.Format('{}', $.result.remaining_count)" },
+    ":status": { "S.$": "$.derived_status" },
+    ":remaining": { "N.$": "States.Format('{}', $.result.remaining_res_count)" },
     ":removed": { "N.$": "States.Format('{}', $.result.removed_count)" },
-    ":failed": { "L.$": "$.result.failed_resources" },
+    ":resources": { "S.$": "States.JsonToString($.result.resources)" },
     ":one": { "N": "1" },
     ":ts": { "S.$": "$$.State.EnteredTime" },
-    ":err": { "S.$": "$.result.error" },
     ":exec_id": { "S.$": "$.execution_id" }
   }
 }
 ```
 
-**Status normalization (before the UpdateItem Map):**
+**Progress detection (PreviousRemainingResCount):**
 
-Regions that returned `"status": "error"` are treated as `"resources_remaining"` in DynamoDB so they get retried. A Pass state before the update Map normalizes this:
+The `UpdateExpression` sets `PreviousRemainingResCount = RemainingResCount` (the old value) BEFORE overwriting `RemainingResCount` with the new value. This is a single atomic operation — DynamoDB evaluates the right-hand side of SET using the current item state.
 
-- `"status": "error"` → `"normalized_status": "resources_remaining"`
-- `"status": "complete"` → `"normalized_status": "complete"`
-- `"status": "resources_remaining"` → `"normalized_status": "resources_remaining"`
-
-This can be done with a Choice + Pass inside the update Map iterator, or with a pre-processing Map that adds `normalized_status` to each result object.
-
-**Implementation — iterator flow inside the update Map:**
-
-```
-For each result in results[]:
-  → Choice state: Is result.status == "error"?
-      - Yes → Pass state: set normalized_status = "resources_remaining"
-      - No  → Pass state: set normalized_status = result.status
-  → Task state: dynamodb:UpdateItem with the fields above
-```
-
-**Progress detection (PreviousRemainingCount):**
-
-The `UpdateExpression` sets `PreviousRemainingCount = RemainingCount` (the old value) BEFORE overwriting `RemainingCount` with the new value. This is a single atomic operation — DynamoDB evaluates the right-hand side of SET using the current item state.
-
-Step 5 can then compare `PreviousRemainingCount` vs `RemainingCount` per region to detect whether progress was made.
+Step 5 can then compare `PreviousRemainingResCount` vs `RemainingResCount` per region to detect whether progress was made.
 
 **Condition expression (ExecutionId guard):**
 
-`ConditionExpression: "ExecutionId = :exec_id"` ensures we only update rows belonging to the current execution. If a stale/duplicate execution tries to write, the condition fails and the write is rejected (ConditionalCheckFailedException). The Map iterator should catch this error and treat it as a no-op.
+`ConditionExpression: "ExecutionId = :exec_id"` ensures we only update rows belonging to the current execution. If a stale/duplicate execution tries to write, the condition fails and the write is rejected (`ConditionalCheckFailedException`). The iterator catches this error and routes to a `StaleExecutionNoOp` Pass state (no-op).
 
 **Fields stored per region after update:**
 
@@ -328,31 +366,29 @@ Step 5 can then compare `PreviousRemainingCount` vs `RemainingCount` per region 
 | `Region` | Region name (SK) |
 | `ExecutionId` | Current Step Functions execution ARN |
 | `RunCount` | Incremented by 1 |
-| `Status` | `complete` or `resources_remaining` (normalized) |
-| `RemainingCount` | Current remaining resources count |
-| `PreviousRemainingCount` | Remaining count from the previous run (for progress detection) |
+| `Status` | `complete` or `resources_remaining` (derived from remaining_res_count) |
+| `RemainingResCount` | Current remaining resources count (-1 for error regions) |
+| `PreviousRemainingResCount` | Remaining count from the previous run (for progress detection) |
 | `RemovedCount` | Resources removed in this run |
-| `FailedResources` | List of resource identifiers that failed deletion |
+| `Resources` | JSON string of resource objects (serialized via `States.JsonToString`) |
 | `LastUpdated` | ISO timestamp |
-| `Error` | Error message (null if no error) |
 
 **IAM permissions (StepFunctionsExecutionRole):**
-- `dynamodb:UpdateItem` on `NukeStateTable`
+- `dynamodb:UpdateItem` on the state table
 
 **Error handling:**
-- `ConditionalCheckFailedException` → caught and treated as no-op (stale execution)
+- `DynamoDb.ConditionalCheckFailedException` → caught and routed to `StaleExecutionNoOp` (no-op)
 - Other DynamoDB errors → let them propagate up to fail the execution (unexpected)
 
 **Notes:**
 - Sequential Map (not parallel) for the updates — order doesn't matter but sequential avoids DynamoDB throttling and keeps it simple
 - The update Map's `MaxConcurrency: 1` ensures writes are sequential
 - `RemovedCount` is per-run (not cumulative) — cumulative can be derived by summing across RunCount history if needed
-- `FailedResources` stores the full list of resource identifiers for debugging/reporting in SNS notifications
+- `Resources` is stored as a JSON string (not a DynamoDB List type) using `States.JsonToString` — this avoids DynamoDB type marshalling issues with complex objects
 - Step 4 does NOT produce a summary — Step 5 queries DynamoDB directly for aggregated state
+- `ResultPath: null` on the Map state — the results are persisted to DynamoDB, not needed in the state payload
 
-**⚠️ Review Notes (to address during implementation):**
-- **`States.Format` null safety:** `States.Format('{}', $.result.remaining_count)` will fail if `remaining_count` is `null` (e.g., from an error catch block). Ensure Lambda responses always return a numeric value, or add a fallback/default in the Pass state that normalizes error results.
-- **`FailedResources` DynamoDB typing:** The expression `":failed": { "L.$": "$.result.failed_resources" }` assumes the value is already in DynamoDB-typed list format (`[{"S": "..."}]`). If the Lambda returns a plain JSON array (`["s3-bucket-xyz"]`), Step Functions SDK integration may not auto-marshal it. Test this — may need `States.JsonToString` or a different approach.
+**⚠️ Review Notes:**
 - **`RemovedCount` is per-run:** Since it's overwritten each cycle (not cumulative), the evaluation Lambda in Step 5 can only report the last run's removals per region, not total. Consider `ADD` expression or a separate cumulative attribute if total reporting is needed.
 
 ---
@@ -362,9 +398,9 @@ Step 5 can then compare `PreviousRemainingCount` vs `RemainingCount` per region 
 **Approach:** Small evaluation Lambda queries DynamoDB, returns a decision object. Choice state branches on the decision. SNS notification built by Step Functions via Pass state. Single SNS topic with message attribute for routing.
 
 **Duplicate execution rejection:**
-- EventBridge (or trigger) uses `target_account_id` as the Step Functions execution name
-- Step Functions natively rejects `StartExecution` if an execution with that name is already running (`ExecutionAlreadyExists`)
-- No extra step needed in the state machine — deduplication is at the trigger level
+- The DynamoDB-based duplicate check in Step 1b queries for active rows (`pending` or `resources_remaining`) before starting
+- The `CleanupFailedRows` step (Step 5f) marks incomplete regions as `failed` when an execution terminates, ensuring the dedup check doesn't permanently block future executions
+- Additionally, using `target_account_id` as the Step Functions execution name provides native `ExecutionAlreadyExists` rejection at the trigger level
 
 ---
 
@@ -385,7 +421,7 @@ Step 5 can then compare `PreviousRemainingCount` vs `RemainingCount` per region 
 2. Categorize regions:
    - `complete` — regions with `Status: "complete"`
    - `remaining` — regions with `Status: "resources_remaining"`
-3. Check progress: for each remaining region, compare `RemainingCount < PreviousRemainingCount`
+3. Check progress: for each remaining region, compare `RemainingResCount < PreviousRemainingResCount`
 4. Determine if at least one remaining region made progress (`progress_detected`)
 5. Get current `RunCount` (same across all regions after Step 4)
 6. Build filtered `regions_remaining` list (for loop-back to Step 3)
@@ -402,8 +438,8 @@ Step 5 can then compare `PreviousRemainingCount` vs `RemainingCount` per region 
   "total_removed": 245,
   "stuck_regions": [],
   "summary": {
-    "us-east-1": { "remaining_count": 12, "failed_resources": ["s3-bucket-xyz"] },
-    "ap-southeast-1": { "remaining_count": 3, "failed_resources": [] }
+    "us-east-1": { "remaining_res_count": 12, "resources": [{"type": "S3Bucket", "id": "s3-bucket-xyz"}] },
+    "ap-southeast-1": { "remaining_res_count": 3, "resources": [] }
   }
 }
 ```
@@ -418,21 +454,21 @@ Step 5 can then compare `PreviousRemainingCount` vs `RemainingCount` per region 
 Branches based on evaluation Lambda output:
 
 ```
-Choice state:
+Choice state (DecideNextAction):
   0. $.no_dry_run == false (dry run — single pass only)
-       → Go to: SNS Dry Run Notification (scan summary) → End
+       → Go to: FormatDryRunMessage → NotifyDryRun (SNS Publish) → End
 
-  1. $.all_complete == true
-       → Go to: SNS Success Notification
+  1. $.evaluation.all_complete == true
+       → Go to: FormatSuccessMessage → NotifySuccess (SNS Publish) → End
 
-  2. $.progress_detected == false (all incomplete regions stuck)
-       → Go to: SNS Failure Notification (stuck resources)
+  2. $.evaluation.progress_detected == false (all incomplete regions stuck)
+       → Go to: CleanupFailedRows → FormatFailureMessage → NotifyFailure (SNS Publish) → End
 
-  3. $.max_retries_reached == true (RunCount >= 5)
-       → Go to: SNS Failure Notification (max retries)
+  3. $.evaluation.max_retries_reached == true (RunCount >= 5)
+       → Go to: CleanupFailedRows → FormatFailureMessage → NotifyFailure (SNS Publish) → End
 
   4. Default (resources remaining + progress + retries left)
-       → Go to: Wait State (30 min) → Loop back to Step 3
+       → Go to: WaitBeforeRetry (30 min) → ReshapeForRetry → FanOutNukeRunner (Step 3)
 ```
 
 **Evaluation order matters:** Check `no_dry_run` first (short-circuit dry runs), then `all_complete`, then `no progress` (stuck), then `max retries`, then default to retry.
@@ -449,20 +485,23 @@ Choice state:
 
 ### 5d: Loop-Back to Step 3
 
-When retrying, the state machine loops back to Step 3 with a modified input:
-- `enabled_regions` is replaced by `regions_remaining` from the evaluation Lambda
+When retrying, the `ReshapeForRetry` Pass state rebuilds the input and loops back to `FanOutNukeRunner` (Step 3) with a modified payload:
+- `region_discovery.enabled_regions` is set to `evaluation.regions_remaining` (only incomplete regions)
 - `target_account_id`, `target_role_arn`, `no_dry_run` carry forward unchanged
 
 ```json
 {
   "target_account_id": "123456789012",
   "target_role_arn": "arn:aws:iam::123456789012:role/NukeExecutionRole",
-  "enabled_regions": ["us-east-1", "ap-southeast-1"],
-  "no_dry_run": true
+  "no_dry_run": true,
+  "region_discovery": {
+    "target_account_id": "123456789012",
+    "enabled_regions": ["us-east-1", "ap-southeast-1"]
+  }
 }
 ```
 
-**Note:** Only incomplete regions are retried — complete regions are skipped for efficiency.
+**Note:** Only incomplete regions are retried — complete regions are skipped for efficiency. The `ReshapeForRetry` state constructs the `region_discovery` object that `FanOutNukeRunner` reads from, bypassing the need to re-run region discovery.
 
 ---
 
@@ -523,10 +562,13 @@ When retrying, the state machine loops back to Step 3 with a modified input:
 **Failure message content (built by Pass state):**
 - Account ID
 - Failure reason: "stuck resources" or "max retries reached (5)"
-- Stuck/incomplete regions with remaining count
-- Failed resources list per region (from `summary`)
-- RunCount reached
-- Step Functions execution console link
+- Run count reached
+- Max retries reached (boolean)
+- Progress detected (boolean)
+- Stuck regions list
+- Regions remaining list
+- Summary per region (from `summary`)
+- Step Functions execution ID
 
 **IAM permissions (StepFunctionsExecutionRole):**
 - `sns:Publish` on the SNS topic ARN
@@ -538,20 +580,50 @@ When retrying, the state machine loops back to Step 3 with a modified input:
 
 ```
 Step 4 output
-  → Task: Invoke Evaluation Lambda
-  → Choice:
-      - dry run       → Pass (format dry run msg) → Task: SNS Publish (dry_run) → End
-      - all_complete  → Pass (format success msg) → Task: SNS Publish (success) → End
-      - no progress   → Pass (format failure msg) → Task: SNS Publish (failure) → End
-      - max retries   → Pass (format failure msg) → Task: SNS Publish (failure) → End
-      - default       → Wait (30 min) → Pass (reshape input with regions_remaining) → Step 3
+  → Task: Invoke Evaluation Lambda (Evaluate)
+  → Choice (DecideNextAction):
+      - dry run       → Pass (FormatDryRunMessage) → Task: SNS Publish (NotifyDryRun) → End
+      - all_complete  → Pass (FormatSuccessMessage) → Task: SNS Publish (NotifySuccess) → End
+      - no progress   → Map (CleanupFailedRows) → Pass (FormatFailureMessage) → Task: SNS Publish (NotifyFailure) → End
+      - max retries   → Map (CleanupFailedRows) → Pass (FormatFailureMessage) → Task: SNS Publish (NotifyFailure) → End
+      - default       → Wait (WaitBeforeRetry, 30 min) → Pass (ReshapeForRetry) → FanOutNukeRunner (Step 3)
 ```
 
-**⚠️ Review Notes (to address during implementation):**
+---
+
+### 5f: CleanupFailedRows ✅
+
+**Purpose:** Before sending the failure notification, mark all remaining regions as `Status: "failed"` in DynamoDB. This ensures the duplicate execution check (Step 1b) won't permanently block future executions for this account.
+
+**Implementation:** Sequential Map state over `$.evaluation.regions_remaining`, performing a `dynamodb:UpdateItem` per region.
+
+**DynamoDB UpdateItem per remaining region:**
+```json
+{
+  "TableName": "<StateTable>",
+  "Key": {
+    "AccountId": { "S.$": "$.account_id" },
+    "Region": { "S.$": "$.region" }
+  },
+  "UpdateExpression": "SET #status = :failed, LastUpdated = :ts",
+  "ConditionExpression": "ExecutionId = :exec_id",
+  "ExpressionAttributeNames": { "#status": "Status" },
+  "ExpressionAttributeValues": {
+    ":failed": { "S": "failed" },
+    ":ts": { "S.$": "$$.State.EnteredTime" },
+    ":exec_id": { "S.$": "$.execution_id" }
+  }
+}
+```
+
+**Notes:**
+- Uses `ConditionExpression` to only update rows belonging to the current execution
+- `ResultPath: null` — cleanup output is not needed downstream
+- This transitions rows from `resources_remaining` → `failed`, which the duplicate check (Step 1b) does not match on
+
+**⚠️ Review Notes:**
 - **Evaluation order edge case:** If `max_retries_reached` is true AND `progress_detected` is true, the current order correctly hard-caps retries regardless of progress. Confirm this is intentional.
 - **`total_removed` accuracy:** The evaluation Lambda sums `RemovedCount` across regions, but `RemovedCount` is per-run (overwritten each cycle). Either make it cumulative in DynamoDB (`ADD RemovedCount :removed` instead of `SET`) or track a separate `TotalRemovedCount` attribute.
-- **EventBridge rule event pattern:** The infra table lists EventBridge but doesn't specify the event source/pattern (e.g., manual trigger, scheduled, or event-driven from another service). Define this during implementation.
-- **CloudWatch alarms:** No alarm defined for consecutive failed executions beyond SNS notifications. Consider adding an alarm on the state machine's `ExecutionsFailed` metric.
 
 ---
 
@@ -582,6 +654,6 @@ All remaining infrastructure lives in eu-west-1 in the service catalog account, 
 | 8 | NukeLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `sts:AssumeRole`, SSM, CloudWatch Logs |
 | 9 | EvaluationLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `dynamodb:Query`, CloudWatch Logs |
 | 10 | RegionDiscoveryLambdaExecutionRole | `AWS::IAM::Role` | ✅ Done — `sts:AssumeRole`, CloudWatch Logs |
-| 11 | StepFunctionsExecutionRole | `AWS::IAM::Role` | ✅ Done — Organizations, Lambda invoke (all), DynamoDB, SNS |
+| 11 | StepFunctionsExecutionRole | `AWS::IAM::Role` | ✅ Done — Organizations, Lambda invoke (all), DynamoDB (PutItem, UpdateItem, Query), SNS |
 | 12 | ~~EventBridge IAM role~~ | ~~`AWS::IAM::Role`~~ | Removed — not needed |
 | 13 | SSM Parameter (nuke config) | `AWS::SSM::Parameter` | ✅ Done — Placeholder value, path `/slz-aws-nuke/nuke-config-base` |

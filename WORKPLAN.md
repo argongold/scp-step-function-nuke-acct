@@ -12,7 +12,7 @@ This is an AWS account teardown orchestrator state machine implemented as an AWS
 
 The `target_role_arn` is constructed internally using the `TargetRoleName` CloudFormation parameter (default: `NukeExecutionRole`) and the `target_account_id`. A `ConstructTargetRoleArn` Pass state builds the ARN via `States.Format('arn:aws:iam::{}:role/<TargetRoleName>', $.target_account_id)` after the duplicate execution check.
 
-**Dry-run behavior:** When `no_dry_run` is `false`, the state machine completes after a single scan pass (Steps 1–4 + evaluation) without entering the retry loop. An SNS notification with `outcome=dry_run` is published with the scan summary.
+**Dry-run behavior:** When `no_dry_run` is `false`, the state machine completes after a single scan pass (Steps 1–4 + evaluation) without entering the retry loop. All DynamoDB region rows are marked `Status: "dry_run_complete"` before the SNS notification with `outcome=dry_run` is published with the scan summary. This ensures subsequent executions are not blocked by stale rows.
 
 ---
 
@@ -456,7 +456,7 @@ Branches based on evaluation Lambda output:
 ```
 Choice state (DecideNextAction):
   0. $.no_dry_run == false (dry run — single pass only)
-       → Go to: FormatDryRunMessage → NotifyDryRun (SNS Publish) → End
+       → Go to: BuildDryRunRegionsList → CleanupDryRunRows → FormatDryRunMessage → NotifyDryRun (SNS Publish) → End
 
   1. $.evaluation.all_complete == true
        → Go to: FormatSuccessMessage → NotifySuccess (SNS Publish) → End
@@ -582,7 +582,7 @@ When retrying, the `ReshapeForRetry` Pass state rebuilds the input and loops bac
 Step 4 output
   → Task: Invoke Evaluation Lambda (Evaluate)
   → Choice (DecideNextAction):
-      - dry run       → Pass (FormatDryRunMessage) → Task: SNS Publish (NotifyDryRun) → End
+      - dry run       → Pass (BuildDryRunRegionsList) → Map (CleanupDryRunRows) → Pass (FormatDryRunMessage) → Task: SNS Publish (NotifyDryRun) → End
       - all_complete  → Pass (FormatSuccessMessage) → Task: SNS Publish (NotifySuccess) → End
       - no progress   → Map (CleanupFailedRows) → Pass (FormatFailureMessage) → Task: SNS Publish (NotifyFailure) → End
       - max retries   → Map (CleanupFailedRows) → Pass (FormatFailureMessage) → Task: SNS Publish (NotifyFailure) → End
@@ -591,7 +591,49 @@ Step 4 output
 
 ---
 
-### 5f: CleanupFailedRows ✅
+### 5f: CleanupDryRunRows ✅
+
+**Purpose:** Before sending the dry-run notification, mark all region rows as `Status: "dry_run_complete"` in DynamoDB. This ensures the duplicate execution check (Step 1b) won't block future executions for this account after a dry run.
+
+**Why not reuse `CleanupFailedRows`?**
+- `"failed"` is semantically incorrect — the dry run succeeded
+- `"complete"` is misleading — resources were not actually deleted (`RemainingResCount > 0`)
+- `"dry_run_complete"` clearly indicates a successful scan-only execution
+
+**Implementation:**
+
+1. Pass state (`BuildDryRunRegionsList`) extracts `$.region_discovery.enabled_regions` into `$.all_regions` — this is the full list of all regions (both with and without resources found).
+
+2. Sequential Map state (`CleanupDryRunRows`) over `$.all_regions`, performing a `dynamodb:UpdateItem` per region.
+
+**DynamoDB UpdateItem per region:**
+```json
+{
+  "TableName": "<StateTable>",
+  "Key": {
+    "AccountId": { "S": "<target_account_id>" },
+    "Region": { "S": "<region>" }
+  },
+  "UpdateExpression": "SET #status = :status, LastUpdated = :ts",
+  "ConditionExpression": "ExecutionId = :exec_id",
+  "ExpressionAttributeNames": { "#status": "Status" },
+  "ExpressionAttributeValues": {
+    ":status": { "S": "dry_run_complete" },
+    ":ts": { "S": "<timestamp>" },
+    ":exec_id": { "S": "<execution_id>" }
+  }
+}
+```
+
+**Notes:**
+- Iterates over ALL regions (not just `regions_remaining`) since the dry run should mark everything as terminal
+- Uses `ConditionExpression` to only update rows belonging to the current execution
+- `ResultPath: null` — cleanup output is not needed downstream
+- `"dry_run_complete"` is not matched by Step 1b's filter (`Status IN (pending, resources_remaining)`), so future executions proceed normally
+
+---
+
+### 5g: CleanupFailedRows ✅
 
 **Purpose:** Before sending the failure notification, mark all remaining regions as `Status: "failed"` in DynamoDB. This ensures the duplicate execution check (Step 1b) won't permanently block future executions for this account.
 

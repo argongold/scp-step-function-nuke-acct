@@ -379,7 +379,7 @@ Resources:
                 {
                   "Variable": "$.no_dry_run",
                   "BooleanEquals": false,
-                  "Next": "FormatDryRunMessage"
+                  "Next": "BuildDryRunRegionsList"
                 },
                 {
                   "Variable": "$.evaluation.all_complete",
@@ -424,6 +424,58 @@ Resources:
                 "MessageAttributes.$": "$.MessageAttributes"
               },
               "End": true
+            },
+            "BuildDryRunRegionsList": {
+              "Type": "Pass",
+              "Comment": "Preserve payload fields needed for cleanup and notification",
+              "Parameters": {
+                "target_account_id.$": "$.target_account_id",
+                "no_dry_run.$": "$.no_dry_run",
+                "evaluation.$": "$.evaluation",
+                "all_regions.$": "$.region_discovery.enabled_regions"
+              },
+              "Next": "CleanupDryRunRows"
+            },
+            "CleanupDryRunRows": {
+              "Type": "Map",
+              "Comment": "Mark all regions as dry_run_complete so future executions are not blocked",
+              "ItemsPath": "$.all_regions",
+              "MaxConcurrency": 1,
+              "ItemSelector": {
+                "account_id.$": "$.target_account_id",
+                "region.$": "$$.Map.Item.Value",
+                "execution_id.$": "$$.Execution.Id"
+              },
+              "Iterator": {
+                "StartAt": "MarkRegionDryRunComplete",
+                "States": {
+                  "MarkRegionDryRunComplete": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::aws-sdk:dynamodb:updateItem",
+                    "Parameters": {
+                      "TableName": "${StateTable}",
+                      "Key": {
+                        "AccountId": { "S.$": "$.account_id" },
+                        "Region": { "S.$": "$.region" }
+                      },
+                      "UpdateExpression": "SET #status = :status, LastUpdated = :ts",
+                      "ConditionExpression": "ExecutionId = :exec_id",
+                      "ExpressionAttributeNames": {
+                        "#status": "Status"
+                      },
+                      "ExpressionAttributeValues": {
+                        ":status": { "S": "dry_run_complete" },
+                        ":ts": { "S.$": "$$.State.EnteredTime" },
+                        ":exec_id": { "S.$": "$.execution_id" }
+                      }
+                    },
+                    "ResultPath": null,
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": null,
+              "Next": "FormatDryRunMessage"
             },
             "FormatDryRunMessage": {
               "Type": "Pass",

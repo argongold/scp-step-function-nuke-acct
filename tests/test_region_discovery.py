@@ -1,6 +1,5 @@
 import os
 import sys
-import json
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "region-discovery"))
@@ -16,16 +15,6 @@ def lambda_event():
         "target_account_id": "123456789012",
         "target_role_arn": "arn:aws:iam::123456789012:role/NukeExecutionRole",
     }
-
-
-@pytest.fixture
-def mock_context():
-    context = MagicMock()
-    context.function_name = "slz-account-teardown-region-discovery"
-    context.memory_limit_in_mb = 128
-    context.invoked_function_arn = "arn:aws:lambda:eu-west-1:111111111111:function:slz-account-teardown-region-discovery"
-    context.aws_request_id = "test-request-id"
-    return context
 
 
 class TestRegionDiscoveryHandler:
@@ -50,17 +39,14 @@ class TestRegionDiscoveryHandler:
         }
 
         with patch("boto3.client") as mock_boto_client:
-            # Mock STS client
             mock_sts = MagicMock()
             mock_sts.assume_role.return_value = mock_credentials
 
-            # Mock Account client with paginator
             mock_account = MagicMock()
             mock_paginator = MagicMock()
             mock_paginator.paginate.return_value = [{"Regions": mock_regions}]
             mock_account.get_paginator.return_value = mock_paginator
 
-            # Route boto3.client calls to the right mock
             def client_factory(service, **kwargs):
                 if service == "sts":
                     return mock_sts
@@ -154,7 +140,6 @@ class TestRegionDiscoveryHandler:
 
             region_discovery.handler(lambda_event, mock_context)
 
-        # Verify account client was created with assumed credentials
         mock_boto_client.assert_any_call(
             "account",
             aws_access_key_id="ASIA_ASSUMED_KEY",

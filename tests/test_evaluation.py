@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-from unittest.mock import MagicMock, patch
 from decimal import Decimal
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "evaluation"))
@@ -9,36 +8,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "evaluat
 import pytest
 import boto3
 from moto import mock_aws
-
-
-@pytest.fixture
-def dynamodb_table(aws_credentials):
-    with mock_aws():
-        dynamodb = boto3.resource("dynamodb", region_name="eu-west-1")
-        table = dynamodb.create_table(
-            TableName="slz-account-teardown-state-table",
-            KeySchema=[
-                {"AttributeName": "AccountId", "KeyType": "HASH"},
-                {"AttributeName": "Region", "KeyType": "RANGE"},
-            ],
-            AttributeDefinitions=[
-                {"AttributeName": "AccountId", "AttributeType": "S"},
-                {"AttributeName": "Region", "AttributeType": "S"},
-            ],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        table.meta.client.get_waiter("table_exists").wait(TableName="slz-account-teardown-state-table")
-        yield table
-
-
-@pytest.fixture
-def mock_context():
-    context = MagicMock()
-    context.function_name = "slz-account-teardown-evaluation"
-    context.memory_limit_in_mb = 128
-    context.invoked_function_arn = "arn:aws:lambda:eu-west-1:111111111111:function:slz-account-teardown-evaluation"
-    context.aws_request_id = "test-request-id"
-    return context
 
 
 @pytest.fixture

@@ -72,7 +72,7 @@ Resources:
                 {
                   "Variable": "$.ou_result.Parents[0].Id",
                   "StringEquals": "${QuarantineOuId}",
-                  "Next": "CheckDuplicateExecution"
+                  "Next": "CheckProtectionTag"
                 }
               ],
               "Default": "FailNotInOU"
@@ -81,6 +81,37 @@ Resources:
               "Type": "Fail",
               "Cause": "Account is not in the Quarantine OU",
               "Error": "OUValidationFailed"
+            },
+            "CheckProtectionTag": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ProtectionCheckFunction}",
+                "Payload": {
+                  "target_account_id.$": "$.target_account_id"
+                }
+              },
+              "ResultSelector": {
+                "is_protected.$": "$.Payload.is_protected"
+              },
+              "ResultPath": "$.protection_check",
+              "Next": "IsProtectedAccount"
+            },
+            "IsProtectedAccount": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.protection_check.is_protected",
+                  "BooleanEquals": true,
+                  "Next": "FailProtectedAccount"
+                }
+              ],
+              "Default": "CheckDuplicateExecution"
+            },
+            "FailProtectedAccount": {
+              "Type": "Fail",
+              "Cause": "Account has core-protection tag set to enabled",
+              "Error": "ProtectedAccountError"
             },
             "CheckDuplicateExecution": {
               "Type": "Task",
@@ -737,6 +768,62 @@ Resources:
       Role: !GetAtt RegionDiscoveryLambdaRole.Arn
 
   #############################################
+  # IAM Role - Protection Check Lambda
+  #############################################
+  ProtectionCheckLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: slz-account-teardown-protection-check-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref ServiceCatalogAccountId
+      Policies:
+        - PolicyName: OrganizationsListTags
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - organizations:ListTagsForResource
+                Resource: '*'
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+      Tags:
+        - Key: SCP-ALLOW-PLATFORM
+          Value: "true"
+        - Key: core-protection
+          Value: "enabled"
+
+  #############################################
+  # Lambda - Protection Check
+  #############################################
+  ProtectionCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: slz-account-teardown-protection-check
+      Runtime: python3.12
+      Handler: protection_check.handler
+      CodeUri: src/protection-check/
+      Timeout: 30
+      MemorySize: 128
+      Role: !GetAtt ProtectionCheckLambdaRole.Arn
+
+  #############################################
   # SNS Topic - Notifications
   #############################################
   NotificationTopic:
@@ -826,6 +913,14 @@ Resources:
                 Action:
                   - organizations:ListParents
                 Resource: '*'
+        - PolicyName: InvokeProtectionCheckLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt ProtectionCheckFunction.Arn
         - PolicyName: InvokeRegionDiscoveryLambda
           PolicyDocument:
             Version: '2012-10-17'
